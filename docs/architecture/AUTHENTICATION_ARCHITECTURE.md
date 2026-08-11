@@ -1,6 +1,6 @@
 # Authentication Architecture
 
-> Authentication and authorization architecture for the Campus Pulse system, including role-based access control.
+> Authentication and authorization architecture for the college project system, including role-based access control.
 > **Status: DECISIONS LOCKED. Split-token architecture (server login handshake + client-held Linways session). Awaiting final approval.**
 > Full details: `docs/architecture/LINWAYS_INTEGRATION_ARCHITECTURE.md`.
 
@@ -19,7 +19,7 @@
 
 ## 1. Authentication Flow
 
-Campus Pulse authenticates students through their **Linways / UUCMS credentials**. The student does **not** create a Campus Pulse password.
+college project authenticates students through their **Linways / UUCMS credentials**. The student does **not** create a college project password.
 
 The auth service (Supabase Edge Function) is **stateless** — it performs a one-time login handshake and retains nothing. The Linways session is held **on the device** (the pattern the college's existing PULSE app already uses).
 
@@ -56,7 +56,7 @@ Two independent credentials:
 | Credential | Where held | Used for | Lifetime |
 |---|---|---|---|
 | **Linways session** (`AUTH_SESSION`, `refresh_token`) | Device — FlutterSecureStorage (encrypted) | Direct Linways calls (attendance dashboard) | Controlled by Linways; 401 → re-login |
-| **Campus Pulse JWT** | Device — FlutterSecureStorage | Campus Pulse APIs (Supabase, RLS) | Short-lived |
+| **college project JWT** | Device — FlutterSecureStorage | college project APIs (Supabase, RLS) | Short-lived |
 
 - **Server side:** nothing persisted; the auth service is stateless.
 - Logout clears both credentials from the device. There is no server-side Linways revocation (Linways expiry applies).
@@ -72,7 +72,7 @@ Two independent credentials:
 
 - Password: in-memory only, discarded after login.
 - Linways session secrets: device-only (encrypted storage); never in DB, files, logs, or commits (locked decision 10).
-- App stores the Campus Pulse JWT alongside; both in FlutterSecureStorage.
+- App stores the college project JWT alongside; both in FlutterSecureStorage.
 - All traffic over TLS; no credential logging.
 - Rate limiting on login; community derivation never trusts client input.
 - RLS (later phase) enforces community isolation (`reports.community_id` vs active membership).

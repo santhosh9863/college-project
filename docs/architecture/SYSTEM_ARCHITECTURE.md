@@ -21,17 +21,17 @@
 
 ## 1. System Overview
 
-Campus Pulse is a **college community platform**. Students authenticate with their Linways/UUCMS credentials; the system fetches their Linways profile, derives their **academic community** (course, batch, semester, section), and joins them to it. The app shows the student's **overall attendance percentage** and community-scoped **issue reports**.
+college project is a **college community platform**. Students authenticate with their Linways/UUCMS credentials; the system fetches their Linways profile, derives their **academic community** (course, batch, semester, section), and joins them to it. The app shows the student's **overall attendance percentage** and community-scoped **issue reports**.
 
 ```
 Linways → student authentication → fetch profile → determine academic community
-        → student joins community → Campus Pulse dashboard
+        → student joins community → college project dashboard
         → overall attendance + community reports
 ```
 
 ## 2. Architecture Principles
 
-- Students authenticate with Linways credentials; Campus Pulse never persists passwords or Linways session secrets (device-held only).
+- Students authenticate with Linways credentials; college project never persists passwords or Linways session secrets (device-held only).
 - Edge Functions are treated as **stateless** — no in-memory session architecture (investigation: `LINWAYS_INTEGRATION_ARCHITECTURE.md` §A.2).
 - The community is derived from reliable Linways academic data, never chosen by the student (`community_pending` fallback).
 - Reports are community-scoped (`reports.community_id` NOT NULL snapshot).
@@ -47,13 +47,13 @@ Linways → student authentication → fetch profile → determine academic comm
 | Backend | Supabase (Postgres 17, Auth, Realtime, Storage) |
 | Server logic | Supabase Edge Functions (stateless login handshake, AI classification) |
 | Identity source | Linways (`sfcv4.linways.com`) — confirmed endpoints only |
-| Credential storage | FlutterSecureStorage (Campus Pulse JWT + Linways session cookies) |
+| Credential storage | FlutterSecureStorage (college project JWT + Linways session cookies) |
 
 ## 4. High-Level Architecture Diagram
 
 ```mermaid
 graph TD
-    APP[Flutter App] -->|Campus Pulse JWT| DB[(Supabase Postgres)]
+    APP[Flutter App] -->|college project JWT| DB[(Supabase Postgres)]
     APP -->|Linways session (device-held)| LIN[Linways API]
     APP -->|login handshake| AUTH[Auth Service / Edge Function]
     AUTH -->|Linways login + profile (one request)| LIN
@@ -74,7 +74,7 @@ graph TD
 
 | Component | Responsibility |
 |---|---|
-| Auth Service (Edge Function, **stateless**) | One-time login handshake: Linways login + profile fetch, community derivation, profile/membership upsert, Campus Pulse JWT issuance, Linways cookie handoff |
+| Auth Service (Edge Function, **stateless**) | One-time login handshake: Linways login + profile fetch, community derivation, profile/membership upsert, college project JWT issuance, Linways cookie handoff |
 | Profiles / Communities (DB) | `profiles`, `communities`, `community_members` (v2 proposal) |
 | Reports (DB) | community-scoped reports, assignments, supports, comments, activity, evidence |
 | AI Edge Functions (future phase) | classification, priority prediction, duplicate detection |
@@ -83,14 +83,14 @@ graph TD
 
 ## 6. Data Flow
 
-1. **Login:** App → Auth Service (handshake) → Linways → profile → community → app receives Campus Pulse JWT + Linways cookies (stored in FlutterSecureStorage; server retains nothing).
+1. **Login:** App → Auth Service (handshake) → Linways → profile → community → app receives college project JWT + Linways cookies (stored in FlutterSecureStorage; server retains nothing).
 2. **Dashboard:** App → Linways directly (device-held session) → `get-my-attendance-summary` → percentage displayed (in-memory cache ~10–30 min).
-3. **Reports:** App ↔ Supabase with Campus Pulse JWT (RLS-scoped to the caller's community).
+3. **Reports:** App ↔ Supabase with college project JWT (RLS-scoped to the caller's community).
 
 ## 7. Security Architecture
 
 - Secrets (password, Linways tokens/cookies): password is in-memory only; Linways session lives only in the device's encrypted storage — never in DB, files, logs, or commits.
-- App: Campus Pulse JWT in FlutterSecureStorage.
+- App: college project JWT in FlutterSecureStorage.
 - Community isolation enforced by RLS (later phase).
 - TLS everywhere; rate-limited login; server-side community derivation; no credential logging.
 

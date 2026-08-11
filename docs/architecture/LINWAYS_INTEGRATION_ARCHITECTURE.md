@@ -1,6 +1,6 @@
 # Linways Integration & Community Architecture
 
-> Design proposal for integrating Campus Pulse with the college Linways system (UUCMS credentials) and the academic community model.
+> Design proposal for integrating college project with the college Linways system (UUCMS credentials) and the academic community model.
 >
 > **Status: DECISIONS LOCKED (items 1–10 approved conceptually). Final schema + authentication architecture shown at the end for approval. No code, no migrations, no Supabase changes.**
 > Based on the Linways investigation (confirmed via Chrome DevTools / HTTP inspection):
@@ -44,7 +44,7 @@
 
 ### A.1 Core principle
 
-Students authenticate with their **Linways / UUCMS credentials**. Campus Pulse **never persists the student's Linways password**, and **never commits or stores `AUTH_SESSION` cookies, access tokens, or refresh tokens** (not in the database, not in files, not in logs, not in documentation).
+Students authenticate with their **Linways / UUCMS credentials**. college project **never persists the student's Linways password**, and **never commits or stores `AUTH_SESSION` cookies, access tokens, or refresh tokens** (not in the database, not in files, not in logs, not in documentation).
 
 ### A.2 Investigation: can Supabase Edge Functions hold a reliable in-memory session?
 
@@ -71,10 +71,10 @@ Students authenticate with their **Linways / UUCMS credentials**. Campus Pulse *
 
 **Option C — Split-token architecture: server login handshake + client-held Linways session.**
 
-1. The **auth service** (stateless Edge Function) performs a **login handshake**: it calls Linways `student-login-credentials` with the student's credentials, fetches `get-my-profile-details`, derives the community, upserts the Campus Pulse profile + membership (via `service_role`), and issues a short-lived **Campus Pulse JWT**.
+1. The **auth service** (stateless Edge Function) performs a **login handshake**: it calls Linways `student-login-credentials` with the student's credentials, fetches `get-my-profile-details`, derives the community, upserts the college project profile + membership (via `service_role`), and issues a short-lived **college project JWT**.
 2. The Linways session cookies (`AUTH_SESSION`, `refresh_token`) captured during that single request are returned to the app **once** and stored in **FlutterSecureStorage** (encrypted). The server retains nothing.
 3. The app uses:
-   - **Campus Pulse JWT** → Supabase APIs (RLS-protected reports, comments, etc.)
+   - **college project JWT** → Supabase APIs (RLS-protected reports, comments, etc.)
    - **Linways session** (device-held) → direct Linways calls for attendance (dashboard) — the exact pattern the college's existing PULSE app already uses in production.
 4. **Password:** passed in-memory only to the handshake; never persisted, never logged.
 
@@ -85,7 +85,7 @@ Why this wins for MVP: highest reliability (no server session state to lose), st
 ```mermaid
 sequenceDiagram
     participant App as Flutter App
-    participant AUTH as Campus Pulse Auth Service (Edge Function, stateless)
+    participant AUTH as college project Auth Service (Edge Function, stateless)
     participant LIN as Linways API
     participant DB as Supabase (service_role)
 
@@ -98,15 +98,15 @@ sequenceDiagram
     AUTH->>AUTH: derive community (course, batch_year, semester, section)
     AUTH->>DB: upsert profile; get-or-create community + active membership
     AUTH-->>App: { campus_pulse_jwt, linways_session_cookies, profile, community }
-    Note over App: Linways cookies + Campus Pulse JWT stored in FlutterSecureStorage
+    Note over App: Linways cookies + college project JWT stored in FlutterSecureStorage
     Note over AUTH: server discards Linways session — retains nothing
 ```
 
 **Subsequent requests:**
-- Reports/community data → app ↔ Supabase with Campus Pulse JWT (RLS).
+- Reports/community data → app ↔ Supabase with college project JWT (RLS).
 - Attendance → app ↔ Linways directly with device-held session cookies.
 
-**Logout / expiry:** app discards both the Campus Pulse JWT and the Linways cookies. On Linways `401`, the app drops the Linways session and prompts re-login (Linways has no client-triggered revocation; expiry is controlled by Linways).
+**Logout / expiry:** app discards both the college project JWT and the Linways cookies. On Linways `401`, the app drops the Linways session and prompts re-login (Linways has no client-triggered revocation; expiry is controlled by Linways).
 
 ---
 
@@ -114,7 +114,7 @@ sequenceDiagram
 
 ### B.1 Field mapping (from `get-my-profile-details`)
 
-| Campus Pulse `profiles` column | Linways source field | Notes |
+| college project `profiles` column | Linways source field | Notes |
 |---|---|---|
 | `full_name` | `name` | e.g. "SANTHOSH KRISHNA R" |
 | `email` | `email` | nullable in Linways data |
@@ -127,7 +127,7 @@ sequenceDiagram
 
 ### B.2 Rules
 
-- `profiles` upsert keyed by `auth.users.id` (auth-side user). The Linways `registerNo` is recorded as `student_id` but is **not** a Campus Pulse primary key.
+- `profiles` upsert keyed by `auth.users.id` (auth-side user). The Linways `registerNo` is recorded as `student_id` but is **not** a college project primary key.
 - Profile write is performed by the auth service using `service_role` — never by the client directly.
 
 ---
@@ -294,7 +294,7 @@ Revisit DB caching only if attendance becomes a first-class reporting feature.
 - **Password:** transmitted in-memory only to the Linways login call; never logged, never persisted, discarded after login.
 - **Session secrets:** `AUTH_SESSION`, `refresh_token`, `accessToken` live only in the device's FlutterSecureStorage (encrypted); returned once from the handshake; never written to the database, files, or logs; never committed (locked decision 10).
 - **Transport:** TLS everywhere; no logging of request/response bodies containing credentials or session data.
-- **App↔Campus Pulse:** short-lived Campus Pulse JWT (FlutterSecureStorage), separate from Linways secrets.
+- **App↔college project:** short-lived college project JWT (FlutterSecureStorage), separate from Linways secrets.
 - **Community isolation:** enforced at the RLS phase via `reports.community_id` vs. the caller's active membership — students can never cross community boundaries.
 - **Server-side parsing:** community derivation is server-side only; client-supplied class values are ignored.
 - **Rate limiting:** login attempts rate-limited at the auth service.
@@ -310,7 +310,7 @@ Revisit DB caching only if attendance becomes a first-class reporting feature.
 | Linways session persistence | Never in server DB/files/logs (locked decision 10) |
 | Server session state | **None** — auth service is stateless; no continuity problem (investigation §A.2) |
 | `refresh_token` | Received from Linways; usage is a device-side implementation detail for the Flutter phase (not a DB/architecture concern) |
-| Campus Pulse JWT | Short-lived, issued at login; stored in FlutterSecureStorage; validated by Supabase/Edge Functions |
+| college project JWT | Short-lived, issued at login; stored in FlutterSecureStorage; validated by Supabase/Edge Functions |
 | Password / tokens in repo | Prohibited. `.env` / secrets are gitignored (already in `.gitignore`) |
 
 ---
@@ -344,7 +344,7 @@ No other existing table changes. Enums unchanged. `profiles` unchanged (communit
 Proposed revised order (full details in `docs/development/DEVELOPMENT_ROADMAP.md`):
 
 1. **Database schema v2** — communities + community_members + reports.community_id (revise before first apply)
-2. **Linways authentication integration** — stateless auth Edge Function: login handshake, profile proxy, session handoff, Campus Pulse JWT
+2. **Linways authentication integration** — stateless auth Edge Function: login handshake, profile proxy, session handoff, college project JWT
 3. **Community provisioning & mapping** — derivation rules + auto-provision + `community_pending` fallback
 4. **RLS policies** — incl. community isolation rule
 5. **Seed data**

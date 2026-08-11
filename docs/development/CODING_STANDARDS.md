@@ -1,6 +1,6 @@
 # Coding Standards
 
-> Language conventions, style guides, and code quality standards for the Campus Pulse project.
+> Language conventions, style guides, and code quality standards for the college project project.
 
 ---
 

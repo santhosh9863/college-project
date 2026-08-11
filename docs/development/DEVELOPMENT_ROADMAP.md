@@ -1,6 +1,6 @@
 # Development Roadmap
 
-> Phased development plan for the Campus Pulse system from foundation through launch.
+> Phased development plan for the college project system from foundation through launch.
 > **Status: DECISIONS LOCKED — revised after the Linways investigation (communities + Linways integration). Awaiting final approval.**
 > Supabase project `college_project` is linked; database foundation migrations exist but are **not applied** until the revised schema is approved.
 
@@ -33,7 +33,7 @@ The approved development order (schema → auth → RLS → seed → Flutter aut
 | # | Phase | Note |
 |---|-------|------|
 | 1 | Database schema v2 | communities + community_members + reports.community_id — **before first apply** |
-| 2 | Linways authentication integration | **Stateless** auth Edge Function: login handshake, session handoff, Campus Pulse JWT |
+| 2 | Linways authentication integration | **Stateless** auth Edge Function: login handshake, session handoff, college project JWT |
 | 3 | Community provisioning & mapping | derivation rules + auto-provision + `community_pending` fallback |
 | 4 | RLS policies | incl. community isolation |
 | 5 | Seed data | |
@@ -53,7 +53,7 @@ The approved development order (schema → auth → RLS → seed → Flutter aut
 
 ## 3. Phase 2: Linways Authentication Integration
 
-- **Stateless** auth Edge Function: `POST /auth/linways/login` → Linways `student-login-credentials` → profile proxy → community derivation → profile/membership upsert → returns Campus Pulse JWT + Linways cookies to the app (handoff). Server retains nothing.
+- **Stateless** auth Edge Function: `POST /auth/linways/login` → Linways `student-login-credentials` → profile proxy → community derivation → profile/membership upsert → returns college project JWT + Linways cookies to the app (handoff). Server retains nothing.
 - **No in-memory session** — Edge Functions are stateless (investigation: `LINWAYS_INTEGRATION_ARCHITECTURE.md` §A.2).
 - Confirmed Linways endpoints only. No token/credential persistence. See `LINWAYS_INTEGRATION_ARCHITECTURE.md` §A.
 
@@ -73,7 +73,7 @@ The approved development order (schema → auth → RLS → seed → Flutter aut
 
 ## 7. Phase 6: Flutter Auth & Onboarding
 
-- Login screen → auth service handshake → store Campus Pulse JWT + Linways session in FlutterSecureStorage → community join → dashboard.
+- Login screen → auth service handshake → store college project JWT + Linways session in FlutterSecureStorage → community join → dashboard.
 
 ## 8. Phase 7: Report CRUD
 

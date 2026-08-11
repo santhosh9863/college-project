@@ -1,6 +1,6 @@
 # Folder Structure
 
-> Complete project folder structure for the Campus Pulse monorepo.
+> Complete project folder structure for the college project monorepo.
 
 ---
 

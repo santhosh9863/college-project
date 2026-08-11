@@ -1,6 +1,6 @@
 # ADR-001: Authentication Architecture
 
-> Decision record for the authentication approach used in the Campus Pulse system.
+> Decision record for the authentication approach used in the college project system.
 
 ---
 

@@ -1,6 +1,6 @@
 # Database Design
 
-> PostgreSQL database schema design for the Campus Pulse system.
+> PostgreSQL database schema design for the college project system.
 > **Status: APPROVED — v1.0. Migrations generated (14 files under `supabase/migrations/`), not yet applied to any database.**
 > **v2 proposal (communities + Linways integration): §9 below — decisions LOCKED, awaiting final approval; no migrations changed.**
 

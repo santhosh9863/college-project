@@ -1,6 +1,6 @@
 # Git Workflow
 
-> Git branching strategy, commit conventions, and pull request process for the Campus Pulse project.
+> Git branching strategy, commit conventions, and pull request process for the college project project.
 
 ---
 

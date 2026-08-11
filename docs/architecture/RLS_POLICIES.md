@@ -1,38 +1,232 @@
 # Row-Level Security Policies
 
-> Supabase RLS policy definitions for all tables, enforcing role-based access at the database level.
+> RLS policy design for the college project database, enforcing role-based access and community isolation at the database level.
+> **Status: DESIGN FULLY APPROVED (decisions u1–u23) — NO RLS SQL written or applied yet.**
+> **Dependencies cleared:** u22 (JWT/auth) approved via `docs/architecture/JWT_AUTH_COMPATIBILITY.md` — identity model `auth.users.id = profiles.id = auth.uid()`, native Supabase Auth sessions. u7 approved via `docs/architecture/REPORT_LIFECYCLE.md` (D1–D9 + amended matrix).
+> **Next step:** RLS SQL generation + migration — pending explicit authorization.
 
 ---
 
 ## Table of Contents
 
-1. [RLS Strategy](#1-rls-strategy)
-2. [Table-Level Policies](#2-table-level-policies)
-3. [Role-Based Access](#3-role-based-access)
-4. [Policy Definitions](#4-policy-definitions)
-5. [Testing RLS](#5-testing-rls)
-6. [Security Considerations](#6-security-considerations)
+1. [Approved Decisions](#1-approved-decisions)
+2. [Identity & Helpers](#2-identity--helpers)
+3. [Policy Matrix](#3-policy-matrix)
+4. [Cross-Cutting Guards](#4-cross-cutting-guards)
+5. [Dependencies & Blockers](#5-dependencies--blockers)
+6. [Implementation Order (after approval)](#6-implementation-order-after-approval)
 
 ---
 
-## 1. RLS Strategy
+## 1. Approved Decisions
+
+All rows below are APPROVED by the project owner (2026-08). u22 and u7 are resolved as documented dependencies (see §5).
+
+| # | Decision | Status |
+|---|---|---|
+| u1 | Students may see their own historical reports from previous communities. | ✅ Approved |
+| u2 | Authorized staff may see soft-deleted reports; students never see deleted reports. | ✅ Approved |
+| u3 | MVP uses community reports only. Do not expose private-report semantics yet. | ✅ Approved |
+| u4 | Students may choose priority. AI may predict/recommend priority but must not silently overwrite the student's value. | ✅ Approved |
+| u5 | Staff cannot create reports in MVP. | ✅ Approved |
+| u6 | Students cannot edit reports in MVP. | ✅ Approved |
+| u7 | Do NOT implement staff status-transition policies yet. Lifecycle/state machine must be documented first. | ✅ Approved — `REPORT_LIFECYCLE.md` (D1–D9 + amendment) |
+| u8 | A student may soft-delete their own report while it is pending. Authorized staff/admin may perform moderation/deletion per their authority. Students never see deleted reports. | ✅ Approved |
+| u9 | Operations and Admin may manually assign/reassign reports. HOD and Technician are receivers/readers for MVP, not manual assigners. | ✅ Approved |
+| u10 | Students cannot support their own report. | ✅ Approved |
+| u11 | Students may support only reports with status: `pending`, `under_review`, `in_progress`. | ✅ Approved |
+| u12 | Staff cannot support reports. | ✅ Approved |
+| u13 | Students may withdraw their own support. Support comments cannot be edited in MVP. | ✅ Approved |
+| u14 | Comments cannot be edited in MVP. Authors may delete their own comments. Admin may moderate/delete comments. | ✅ Approved |
+| u15 | `report_activity` must be server-generated only. No direct client INSERT/UPDATE/DELETE. | ✅ Approved |
+| u16 | Students may upload evidence only to reports they own. | ✅ Approved |
+| u17 | Evidence deletion/moderation is Admin-only for MVP. | ✅ Approved |
+| u18 | `ai_classification_log` is Admin-only. | ✅ Approved |
+| u19 | Users may dismiss/delete their own notifications. | ✅ Approved |
+| u20 | Authenticated users may read `departments` as reference data. | ✅ Approved |
+| u21 | `category_routes` are visible only to staff. | ✅ Approved |
+| u22 | JWT/auth compatibility with Supabase RLS — NOT assumed; under investigation. | ✅ Approved — native Supabase Auth sessions (`JWT_AUTH_COMPATIBILITY.md`); `auth.users.id = profiles.id = auth.uid()` |
+| u23 | Staff department-specific scoping is deferred. MVP staff visibility uses category routing + assignments. | ✅ Approved |
 
 ---
 
-## 2. Table-Level Policies
+## 2. Identity & Helpers
+
+All policies key off `auth.uid()` (the JWT subject) = `profiles.id` (1:1 with `auth.users`) — approved identity model (u22, `JWT_AUTH_COMPATIBILITY.md`).
+
+| Helper (concept) | Purpose |
+|---|---|
+| `me` | `auth.uid()` — must always equal `profiles.id` |
+| `my_role` | caller's `profiles.role` (database is the source of truth, not JWT claims) — via a `SECURITY DEFINER` helper to avoid RLS recursion on `profiles` |
+| `my_community_id` | `community_members.community_id` where `profile_id = me AND is_active = true` (helper function; MVP = exactly one active community) |
+| `staff` | `my_role IN (hod, technician, operations, admin)` |
 
 ---
 
-## 3. Role-Based Access
+## 3. Policy Matrix
+
+Legend: **S**=student, **H**=hod, **T**=technician, **O**=operations, **A**=admin. "Routed/assigned" for staff = `category_id` routes to the caller's role (`category_routes`) OR an active assignment to the caller (`report_assignments` where `active = true`). All predicates are design-level descriptions; SQL generation is pending explicit authorization.
+
+### 3.1 profiles
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S, H, T, O | `id = me` only |
+| SELECT | A | all rows (admin manages `community_pending`, staff provisioning later) |
+| INSERT | — | **DENY all** — profile created only by the auth Edge Function via `service_role` |
+| UPDATE | S, H, T, O | **DENY for MVP** (no self-edit feature; prevents role/semester/section/student_id tampering) |
+| UPDATE | A | all (staff provisioning/role fixes later) |
+| DELETE | — | **DENY all** (lifecycle via `auth.users` cascade) |
+| Guards | — | `role` never client-settable or client-changeable |
+
+### 3.2 communities
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | only communities where `me` has an **active membership** |
+| SELECT | H, T, O, A | all (staff serve across classes; routing is global per u23) |
+| INSERT | — | **DENY all** — idempotent get-or-create by auth service (`service_role`), never client |
+| UPDATE / DELETE | — | **DENY all** — `display_name` is derived, not user-typed |
+
+### 3.3 community_members
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | `profile_id = me` only (enables the community-scope subquery used by every other policy) |
+| SELECT | H, T, O, A | all |
+| INSERT | S | **DENY** — the client never chooses its class (locked decision 7) |
+| INSERT | A | allowed — admin assigns `community_pending` students |
+| UPDATE | S | **DENY** — cannot flip own `is_active`/move community |
+| UPDATE | A | allowed — deactivate/reactivate membership (semester rollover) |
+| DELETE | — | **DENY all** — history preserved via `is_active`/`left_at` |
+
+### 3.4 reports
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | `(community_id = my_community_id OR reporter_id = me) AND deleted_at IS NULL` — u1 allows own historical reports; u2 keeps deleted reports invisible to students |
+| SELECT | H, T, O | routed/assigned — **including soft-deleted** (u2); u23: no department scoping |
+| SELECT | A | all, including soft-deleted |
+| INSERT | S | `reporter_id = me AND community_id = my_community_id AND status = 'pending' AND deleted_at IS NULL AND ai_confidence IS NULL AND duplicate_of IS NULL`; `report_type` = community only (u3); `priority` chosen by student, AI must not silently overwrite (u4) |
+| INSERT | H, T, O | **DENY** (u5 — staff cannot create reports in MVP) |
+| INSERT | A | allowed (support/test data) |
+| UPDATE | S | **DENY** (u6 — no editing in MVP). Soft delete of own **pending** report via `UPDATE deleted_at` only (u8) — i.e., the single permitted student UPDATE is `deleted_at` on own-pending rows |
+| UPDATE | H, T, O | `status` transitions **per the approved lifecycle matrix** (`REPORT_LIFECYCLE.md` §3) — forward/reject/reopen edges valid for the actor's role (D1–D9); validations via `SECURITY DEFINER` transition helper; staff soft-delete of visible reports per u8 |
+| UPDATE | A | all, incl. `deleted_at = null` restore and moderation (u8) |
+| DELETE | — | **DENY all** — soft delete only |
+
+### 3.5 report_assignments
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | reports visible to them (community scope; shows assignee read-only) |
+| SELECT | H, T, O | routed/assigned reports; A: all |
+| INSERT | S | **DENY** |
+| INSERT | O, A | allowed — manual assignment (u9); `assigned_by = me`, `active = true`; prior assignment deactivated at trigger/app layer |
+| INSERT | H, T | **DENY** (u9 — receivers/readers, not manual assigners) |
+| UPDATE / DELETE | S | **DENY** |
+| UPDATE / DELETE | H, T | **DENY** |
+| UPDATE | O, A | history-preserving reassignment (deactivate/reactivate); no hard delete |
+
+### 3.6 report_supports
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | `report.community_id = my_community_id` (or own report per u1) |
+| SELECT | H, T, O, A | routed/assigned (or all for A) |
+| INSERT | S | `supporter_id = me AND report in my_community AND report.deleted_at IS NULL AND supporter_id != reporter_id` (u10) AND `report.status IN (pending, under_review, in_progress)` (u11) |
+| INSERT | staff | **DENY** (u12) |
+| UPDATE | S | **DENY** — support comments cannot be edited (u13) |
+| DELETE | S | own row allowed — withdraw support (u13) |
+| UPDATE / DELETE | staff | **DENY** |
+
+### 3.7 report_comments
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | `report.community_id = my_community_id` (or own report per u1) |
+| SELECT | H, T, O, A | routed/assigned / all |
+| INSERT | S | `author_id = me AND report in my_community AND deleted_at IS NULL` |
+| INSERT | H, T, O, A | on routed/assigned reports, `author_id = me` |
+| UPDATE | S | **DENY** (u14 — no comment editing in MVP) |
+| UPDATE | staff | **DENY** (u14 — no editing in MVP; moderation by deletion, not edit) |
+| DELETE | S | own comments only (u14) |
+| DELETE | A | all (moderation, u14) |
+
+### 3.8 report_activity
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | `report.community_id = my_community_id` (or own report per u1) — timeline |
+| SELECT | H, T, O, A | routed/assigned / all |
+| INSERT | — | **DENY all clients** (u15) — server-generated only (triggers `SECURITY DEFINER` or `service_role`); `actor_id` set server-side, never spoofable |
+| UPDATE / DELETE | — | **DENY all** — append-only audit trail |
+
+### 3.9 evidence_files
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | S | `report.community_id = my_community_id` (or own report per u1) |
+| SELECT | H, T, O, A | routed/assigned / all |
+| INSERT | S | `uploaded_by = me AND report in my_community AND report.reporter_id = me` (u16 — own reports only) |
+| INSERT | H, T, O | on routed/assigned reports, `uploaded_by = me` (staff attachment pending u7 clarity; default: allowed on reports they can see) |
+| INSERT | A | all |
+| UPDATE / DELETE | S, H, T, O | **DENY** |
+| UPDATE / DELETE | A | allowed — moderation (u17) |
+| Note | — | Storage **bucket** policies are a separate phase (not schema RLS) |
+
+### 3.10 ai_classification_log
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | A | only (u18) |
+| SELECT | S, H, T, O | **DENY** |
+| INSERT | — | **DENY all clients** — written only by the AI Edge Function via `service_role` |
+| UPDATE / DELETE | — | **DENY all** — append-only audit log |
+
+### 3.11 notifications
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | all roles | `user_id = me` only |
+| INSERT | — | **DENY all clients** — server-generated (`service_role`) |
+| UPDATE | all roles | own rows, **`read` column only** (column-grant whitelist) |
+| DELETE | all roles | own rows — dismiss (u19) |
+
+### 3.12 departments (reference data)
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | all authenticated | read-only reference (u20) |
+| INSERT / UPDATE / DELETE | — | **DENY** (seed/`service_role` only) |
+
+### 3.13 categories (reference data)
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | all authenticated | required for report creation (category picker) |
+| INSERT / UPDATE / DELETE | — | **DENY** (seed/`service_role` only) |
+
+### 3.14 category_routes (routing internals)
+| Op | Who | Rule |
+|---|---|---|
+| SELECT | staff only | u21 |
+| SELECT | S | DENY |
+| INSERT / UPDATE / DELETE | — | **DENY** (admin/`service_role` only) |
 
 ---
 
-## 4. Policy Definitions
+## 4. Cross-Cutting Guards
+
+1. **Community isolation invariant** — every student-scoped SELECT/INSERT on report-related tables funnels through `community_id = my_community_id` (with the single u1 exception for own historical reports); no policy references another student's membership.
+2. **No client writes to identity/social data** — `profiles`, `communities`, `community_members`, `ai_classification_log`, `notifications`, reference tables: writes only via `service_role` (auth/AI Edge Functions) or admin. The auth flow needs **zero** user-token INSERT policies.
+3. **Role immutability** — `profiles.role` can never be set/changed by the row owner; only admin (or `service_role`) writes it.
+4. **Soft-delete** — `deleted_at IS NULL` on every student-scoped predicate (u2); staff see deleted; admin manages restore.
+5. **Append-only audit** — `report_activity`, `ai_classification_log`: no UPDATE/DELETE policies at all (u15, u18).
+6. **Priority integrity** — student-chosen `priority` (u4); the AI Edge Function records predictions in `ai_classification_log` and must not silently overwrite the student's value.
+7. **Admin** — full visibility + repair rights (community assignment, restore soft-deletes, moderation) via the same identity channel (`auth.uid()`), not a separate role.
 
 ---
 
-## 5. Testing RLS
+## 5. Dependencies (resolved)
+
+| Dependency | Resolution |
+|---|---|
+| **u22 — JWT/auth compatibility** | ✅ **APPROVED** — `docs/architecture/JWT_AUTH_COMPATIBILITY.md`: native Supabase Auth sessions (admin `createUser` + `generateLink`/`verifyOtp` minting); identity model `auth.users.id = profiles.id = auth.uid()`. Linways remains the external college identity source; Supabase Auth provides the session used by RLS. |
+| **u7 — report lifecycle/state machine** | ✅ **APPROVED** — `docs/architecture/REPORT_LIFECYCLE.md`: D1–D9 approved with the amendment that the direct `pending → resolved` transition is removed entirely (including Admin). Staff UPDATE policies will reference this matrix. |
 
 ---
 
-## 6. Security Considerations
+## 6. Implementation Order (pending explicit authorization)
+
+1. Generate the RLS migration: helper functions (`SECURITY DEFINER` role/membership + transition validation) → `enable row level security` on all 14 tables → policies per the matrix above → column-grant whitelists (`profiles` role immutability, `notifications.read`).
+2. Apply via the established preflight flow: `migration list --linked` → `db push --dry-run` → `db push --linked` → verify `migration list --linked`.
+
+*No RLS SQL has been written or applied. Documentation only.*

@@ -1,6 +1,6 @@
 # ADR-004: Linways Integration & Community Model
 
-> Decision record for integrating Campus Pulse with Linways authentication and the academic community model.
+> Decision record for integrating college project with Linways authentication and the academic community model.
 > **Status: DECISIONS LOCKED (items 1–10 approved conceptually). Awaiting final approval of the documented schema + authentication architecture. No implementation.**
 
 ---
@@ -19,7 +19,7 @@
 
 ## 1. Context
 
-The Linways investigation confirmed the student login endpoint, the profile endpoint (`get-my-profile-details`), and the overall attendance endpoint (`get-my-attendance-summary`). Campus Pulse is a **college community platform**: students authenticate with Linways/UUCMS credentials, their academic class (course, batch, semester, section) is derived from Linways data, and reports are scoped to that community. The approved v1.0 database schema (checkpoint `e11b88a`, migrations not yet applied) does not model communities; it must be revised before the first cloud apply.
+The Linways investigation confirmed the student login endpoint, the profile endpoint (`get-my-profile-details`), and the overall attendance endpoint (`get-my-attendance-summary`). college project is a **college community platform**: students authenticate with Linways/UUCMS credentials, their academic class (course, batch, semester, section) is derived from Linways data, and reports are scoped to that community. The approved v1.0 database schema (checkpoint `e11b88a`, migrations not yet applied) does not model communities; it must be revised before the first cloud apply.
 
 ## 2. Decision
 
@@ -70,7 +70,7 @@ Locked decisions (approved conceptually):
 | **Split-token: stateless login handshake + client-held Linways session** | **High** | **Medium (device-encrypted; legacy precedent)** | **Lowest** | **Recommended** |
 | Hybrid (server proxy + client-held) | High | Same as above + extra hop | Medium | Rejected — no benefit |
 
-**Recommendation: split-token.** The auth service is a stateless Edge Function that performs a one-time login handshake (Linways login → profile → community derivation → profile/membership upsert → Campus Pulse JWT + Linways cookie handoff) and retains nothing. The app holds the Linways session in FlutterSecureStorage for direct attendance calls (the college's existing PULSE app already runs this pattern in production) and the Campus Pulse JWT for Supabase APIs.
+**Recommendation: split-token.** The auth service is a stateless Edge Function that performs a one-time login handshake (Linways login → profile → community derivation → profile/membership upsert → college project JWT + Linways cookie handoff) and retains nothing. The app holds the Linways session in FlutterSecureStorage for direct attendance calls (the college's existing PULSE app already runs this pattern in production) and the college project JWT for Supabase APIs.
 
 ## 6. Open Questions
 

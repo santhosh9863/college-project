@@ -1,4 +1,4 @@
-# Campus Pulse — Documentation
+# college project — Documentation
 
 > Technical documentation for the AI-Powered Smart Campus Issue Reporting and Resolution System.
 

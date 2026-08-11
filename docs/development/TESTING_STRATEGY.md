@@ -1,6 +1,6 @@
 # Testing Strategy
 
-> Testing philosophy, coverage goals, and testing approaches for all layers of the Campus Pulse system.
+> Testing philosophy, coverage goals, and testing approaches for all layers of the college project system.
 
 ---
 
