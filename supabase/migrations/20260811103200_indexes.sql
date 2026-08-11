@@ -1,6 +1,6 @@
--- Phase 1.2 — Database Foundation
+-- Phase 1.2 — Database Foundation (v2)
 -- Migration 14: Indexes
--- Foreign-key lookup indexes per DATABASE_DESIGN.md section 5.
+-- Foreign-key lookup indexes per DATABASE_DESIGN.md sections 5 and 9.5.
 -- (Uniqueness constraints were created inline in their table migrations.)
 
 create index if not exists profiles_department_id_idx
@@ -20,6 +20,12 @@ create index if not exists reports_department_id_idx
 
 create index if not exists reports_duplicate_of_idx
   on public.reports (duplicate_of);
+
+create index if not exists reports_community_id_idx
+  on public.reports (community_id);
+
+create index if not exists community_members_profile_id_idx
+  on public.community_members (profile_id);
 
 create index if not exists report_assignments_report_id_idx
   on public.report_assignments (report_id);

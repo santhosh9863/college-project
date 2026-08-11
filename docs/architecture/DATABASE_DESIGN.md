@@ -2,6 +2,7 @@
 
 > PostgreSQL database schema design for the Campus Pulse system.
 > **Status: APPROVED — v1.0. Migrations generated (14 files under `supabase/migrations/`), not yet applied to any database.**
+> **v2 proposal (communities + Linways integration): §9 below — decisions LOCKED, awaiting final approval; no migrations changed.**
 
 ---
 
@@ -327,3 +328,74 @@ Deferred — defined and approved as part of the Seed Data phase (step 4 of the 
 - Do not add `assigned_to` directly to `reports`.
 - Do not put `assigned_role` inside `categories`.
 - RLS, authentication, and AI are out of scope for this phase.
+
+---
+
+## 9. Proposed Schema Changes — v2 (Community & Linways Integration)
+
+> **DECISIONS LOCKED — awaiting final approval. No migration files have been modified.**
+> Full rationale and flows: `docs/architecture/LINWAYS_INTEGRATION_ARCHITECTURE.md`.
+
+### 9.0 Locked decisions affecting the schema
+
+1. **Community lifetime:** a separate community per **semester + section + batch** (`BCA 2024 S5 C` ≠ `BCA 2024 S6 C`).
+2. **`reports.community_id`:** NOT NULL, snapshot of the reporter's community at report creation.
+3. **`community_members`:** history preserved with `is_active`, `joined_at`, `left_at`.
+4. **Attendance:** dashboard-only; no attendance tables.
+5. **Staff:** provisioning OUT OF MVP; role architecture retained.
+6. **Profile:** no new fields (`rollNo`, `phone`, `image` deferred).
+7. **`community_pending`:** fallback kept; client never chooses its class.
+8. **`course_code`:** independent from `departments`; no new FK.
+10. **Linways secrets:** never stored in DB, files, logs, or docs.
+
+### 9.1 New table: communities
+
+One row per distinct academic class/section. Key: `(course_code, batch_year, semester, section)`.
+
+| Column       | Type        | Constraints                                             |
+|--------------|-------------|---------------------------------------------------------|
+| id           | uuid        | PRIMARY KEY                                             |
+| course_code  | text        | NOT NULL (e.g. `BCA`)                                   |
+| batch_year   | integer     | NOT NULL (e.g. `2024`)                                  |
+| semester     | text        | NOT NULL (e.g. `S5`)                                    |
+| section      | text        | NOT NULL (e.g. `C`)                                     |
+| display_name | text        | NOT NULL (e.g. `BCA 2024 S5 C`)                         |
+| created_at   | timestamptz | NOT NULL                                                |
+
+- `UNIQUE (course_code, batch_year, semester, section)` — idempotent get-or-create.
+- No FK to `departments` (locked decision 8).
+
+### 9.2 New table: community_members
+
+| Column       | Type        | Constraints                                |
+|--------------|-------------|--------------------------------------------|
+| id           | uuid        | PRIMARY KEY                                |
+| community_id | uuid        | FOREIGN KEY → communities.id, NOT NULL     |
+| profile_id   | uuid        | FOREIGN KEY → profiles.id, NOT NULL        |
+| is_active    | boolean     | NOT NULL                                   |
+| joined_at    | timestamptz | NOT NULL                                   |
+| left_at      | timestamptz | NULLABLE                                   |
+
+- `UNIQUE (community_id, profile_id)` — one membership row per student per community; `is_active` marks the current one; history preserved.
+
+### 9.3 Modified table: reports (one new column)
+
+| Column       | Type | Constraints                                                              |
+|--------------|------|--------------------------------------------------------------------------|
+| community_id | uuid | FOREIGN KEY → communities.id, **NOT NULL** (snapshot of creator's community) |
+
+### 9.4 Unchanged
+
+All other tables (`departments`, `categories`, `category_routes`, `profiles`, `report_assignments`, `report_supports`, `report_comments`, `report_activity`, `evidence_files`, `ai_classification_log`, `notifications`) and all enums remain as approved in v1.0. `profiles` references its community through `community_members` (no denormalized column, no new fields — see proposal §I).
+
+### 9.5 Migration impact (v2)
+
+| Migration | Impact |
+|---|---|
+| `..._enums.sql` … `..._profiles.sql` | Valid, unchanged |
+| `..._reports.sql` | MUST CHANGE — add `community_id` FK NOT NULL |
+| `..._report_assignments.sql` … `..._notifications.sql` | Valid, unchanged |
+| `..._indexes.sql` | MUST CHANGE — add `reports.community_id`, `community_members.profile_id` |
+| NEW | `communities.sql`, `community_members.sql` (inserted between `profiles` and `reports` in order) |
+
+Apply strategy: revise in place before first cloud apply (database is pristine). Pending final approval.
