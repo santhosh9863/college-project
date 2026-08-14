@@ -14,6 +14,8 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Required by Google ML Kit (on-device text recognition).
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -43,4 +45,9 @@ android {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    // Required by Google ML Kit (on-device text recognition).
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
 }

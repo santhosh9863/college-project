@@ -3,6 +3,11 @@ import 'package:flutter/material.dart';
 import '../../services/auth_controller.dart';
 import '../attendance/attendance_controller.dart';
 import '../attendance/data/linways_attendance_repository.dart';
+import '../attendance/import/import_controller.dart';
+import '../attendance/import/models/parsed_linways_snapshot.dart';
+import '../attendance/import/ocr/mlkit_ocr_service.dart';
+import '../attendance/import/image/image_pick_service.dart';
+import '../attendance/import/screens/import_flow_screen.dart';
 import '../attendance/widgets/attendance_card.dart';
 import '../notifications/data/notifications_repository.dart';
 import '../notifications/notifications_controller.dart';
@@ -29,6 +34,7 @@ class _HomeShellState extends State<HomeShell> {
   late final AttendanceController _attendanceController;
   late final ReportsController _reportsController;
   late final NotificationsController _notificationsController;
+  late final LinwaysImportController _importController;
 
   @override
   void initState() {
@@ -42,6 +48,12 @@ class _HomeShellState extends State<HomeShell> {
     _notificationsController = NotificationsController(
       repository: NotificationsRepository(),
     );
+    _importController = LinwaysImportController(
+      ocr: MlKitOcrService(),
+      picker: GalleryImagePickService(),
+      profile: widget.controller.profile,
+      community: widget.controller.community,
+    );
   }
 
   @override
@@ -49,7 +61,19 @@ class _HomeShellState extends State<HomeShell> {
     _attendanceController.dispose();
     _reportsController.dispose();
     _notificationsController.dispose();
+    _importController.dispose();
     super.dispose();
+  }
+
+  Future<void> _openImportFlow() async {
+    final snapshot = await Navigator.of(context).push<ParsedLinwaysSnapshot>(
+      MaterialPageRoute(
+        builder: (_) => ImportFlowScreen(controller: _importController),
+      ),
+    );
+    if (snapshot != null) {
+      _attendanceController.useImported(snapshot);
+    }
   }
 
   @override
@@ -73,6 +97,7 @@ class _HomeShellState extends State<HomeShell> {
             attendanceController: _attendanceController,
             onAttendanceRefresh: _attendanceController.refresh,
             onAttendanceReSignIn: widget.controller.logout,
+            onImportScreenshot: _openImportFlow,
           ),
           ReportsScreen(controller: _reportsController),
           NotificationsScreen(controller: _notificationsController),
@@ -115,12 +140,14 @@ class _HomeTab extends StatelessWidget {
     required this.attendanceController,
     required this.onAttendanceRefresh,
     required this.onAttendanceReSignIn,
+    required this.onImportScreenshot,
   });
 
   final AuthController controller;
   final AttendanceController attendanceController;
   final Future<void> Function() onAttendanceRefresh;
   final VoidCallback onAttendanceReSignIn;
+  final VoidCallback onImportScreenshot;
 
   @override
   Widget build(BuildContext context) {
@@ -172,6 +199,7 @@ class _HomeTab extends StatelessWidget {
                 controller: attendanceController,
                 onRefresh: onAttendanceRefresh,
                 onReSignIn: onAttendanceReSignIn,
+                onImportScreenshot: onImportScreenshot,
               ),
             ],
           );

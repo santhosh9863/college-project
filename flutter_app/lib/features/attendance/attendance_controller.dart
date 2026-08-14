@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../../core/config/app_config.dart';
 import 'data/attendance_summary.dart';
 import 'data/linways_attendance_repository.dart';
+import 'import/models/parsed_linways_snapshot.dart';
 
 enum AttendanceStatus {
   /// First fetch in flight.
@@ -18,9 +19,11 @@ enum AttendanceStatus {
   unavailable,
 }
 
-/// Dashboard attendance state: live fetch with a short in-memory TTL cache.
-/// Per locked decision 4, attendance is never stored — the last known value is
-/// only held in memory and lost on restart.
+/// Dashboard attendance state with two conceptually distinct sources:
+/// - **LIVE** — fetched from Linways via [LinwaysAttendanceRepository] with a
+///   short in-memory TTL cache (unchanged behaviour).
+/// - **IMPORT** — a screenshot-derived snapshot confirmed by the student
+///   (memory only, never persisted).
 class AttendanceController extends ChangeNotifier {
   AttendanceController({required LinwaysAttendanceRepository repository})
       : _repository = repository {
@@ -33,11 +36,28 @@ class AttendanceController extends ChangeNotifier {
   AttendanceSummary? _summary;
   DateTime? _lastFetchedAt;
   bool _sessionExpired = false;
+  ParsedLinwaysSnapshot? _importedSnapshot;
 
   AttendanceStatus get status => _status;
   AttendanceSummary? get summary => _summary;
   DateTime? get lastFetchedAt => _lastFetchedAt;
   bool get sessionExpired => _sessionExpired;
+
+  /// Screenshot-derived attendance confirmed by the student (IMPORT source).
+  ParsedLinwaysSnapshot? get importedSnapshot => _importedSnapshot;
+
+  /// Applies a confirmed screenshot import. The student reviewed it first;
+  /// live data is not overwritten, it stays available via [clearImported].
+  void useImported(ParsedLinwaysSnapshot snapshot) {
+    _importedSnapshot = snapshot;
+    notifyListeners();
+  }
+
+  /// Switches back to the live Linways value.
+  void clearImported() {
+    _importedSnapshot = null;
+    notifyListeners();
+  }
 
   bool get _cacheIsFresh =>
       _lastFetchedAt != null &&
