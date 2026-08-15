@@ -3,6 +3,7 @@ import 'package:college_project_app/features/reports/data/models/report_detail.d
 import 'package:college_project_app/features/reports/data/models/report_priority.dart';
 import 'package:college_project_app/features/reports/data/models/report_status.dart';
 import 'package:college_project_app/features/reports/data/reports_repository.dart';
+import 'package:college_project_app/features/staff/data/assignable_staff.dart';
 import 'package:college_project_app/features/staff/data/staff_reports_repository.dart';
 import 'package:college_project_app/features/staff/staff_detail_controller.dart';
 import 'package:college_project_app/features/staff/staff_detail_screen.dart';
@@ -56,6 +57,24 @@ class _FakeStaffReportsRepository extends StaffReportsRepository {
     }
     return queue;
   }
+
+  @override
+  Future<List<AssignableStaff>> listAssignableStaff() async => const [
+        AssignableStaff(id: 'staff-1', fullName: 'Anu Sharma', role: 'technician'),
+        AssignableStaff(
+          id: 'staff-2',
+          fullName: 'Ravi Menon',
+          role: 'hod',
+          departmentCode: 'GENERAL',
+        ),
+      ];
+
+  @override
+  Future<bool> assign({
+    required String reportId,
+    required String assigneeId,
+  }) async =>
+      true;
 }
 
 class _FakeReportsRepository extends ReportsRepository {
@@ -193,6 +212,99 @@ void main() {
       expect(find.text('Mark resolved'), findsOneWidget);
       expect(find.text('Reject'), findsOneWidget);
       expect(find.text('Start review'), findsNothing);
+    });
+
+    testWidgets('hides the assignment card for the HOD panel', (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'hod',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Assignment'), findsNothing);
+      expect(find.text('Assign'), findsNothing);
+    });
+
+    testWidgets('operations panel shows the assignment card and picker',
+        (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'operations',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Assignment'), findsOneWidget);
+      expect(find.text('Not assigned'), findsOneWidget);
+      expect(find.text('Assign'), findsOneWidget);
+
+      await tester.tap(find.text('Assign'));
+      await settle(tester);
+
+      expect(find.text('Assign to staff'), findsOneWidget);
+      expect(find.text('Anu Sharma'), findsOneWidget);
+      expect(find.text('Ravi Menon'), findsOneWidget);
+      expect(find.textContaining('GENERAL'), findsOneWidget);
+    });
+
+    testWidgets('operations may reopen a resolved report once reassigned',
+        (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(
+          detail: ReportDetail(
+            report: _report(status: ReportStatus.resolved),
+            comments: const [],
+            evidence: const [],
+            activity: const [],
+            activeAssigneeId: 'staff-2',
+          ),
+        ),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'operations',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Reopen review'), findsOneWidget);
+      expect(find.text('Reopen work'), findsOneWidget);
+    });
+
+    testWidgets('operations cannot reopen a resolved report without a new assignment',
+        (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(
+          detail: ReportDetail(
+            report: _report(status: ReportStatus.resolved),
+            comments: const [],
+            evidence: const [],
+            activity: const [],
+            activeAssigneeId: null,
+          ),
+        ),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'operations',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Reopen review'), findsNothing);
+      expect(find.text('Reopen work'), findsNothing);
+      expect(find.text('Assign'), findsOneWidget);
     });
   });
 }

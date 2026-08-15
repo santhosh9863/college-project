@@ -10,10 +10,10 @@ import 'data/staff_reports_repository.dart';
 import 'staff_queue_controller.dart';
 import 'staff_queue_screen.dart';
 
-/// Staff dashboard shell. Panel selection follows `profiles.role`; the HOD
-/// and technician panels (Phases 2.4/2.5) render the D1-scoped routed queue
-/// through [StaffQueueScreen]; operations/admin show a placeholder until
-/// their phase ships.
+/// Staff dashboard shell. Panel selection follows `profiles.role`; the HOD,
+/// technician and operations panels (Phases 2.4–2.6) render the D1-scoped
+/// routed queue through [StaffQueueScreen]; admin shows a placeholder until
+/// its phase ships.
 class StaffHomeShell extends StatefulWidget {
   const StaffHomeShell({super.key, required this.controller, required this.role});
 
@@ -38,6 +38,7 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
       detailRepository: ReportsRepository(
         currentUserId: widget.controller.currentUser?.id ?? '',
       ),
+      role: widget.role,
     );
     _notificationsController = NotificationsController(
       repository: NotificationsRepository(),
@@ -74,7 +75,9 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
 body: IndexedStack(
         index: _selectedIndex,
         children: [
-          if (widget.role == 'hod' || widget.role == 'technician')
+          if (widget.role == 'hod' ||
+              widget.role == 'technician' ||
+              widget.role == 'operations')
             StaffQueueScreen(controller: _queueController)
           else
             _PanelComingSoon(role: widget.role),

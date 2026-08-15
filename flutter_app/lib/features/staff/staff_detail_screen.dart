@@ -2,6 +2,7 @@
 
 import '../reports/data/models/report_status.dart';
 import '../reports/widgets/report_detail_widgets.dart';
+import 'data/assignable_staff.dart';
 import 'staff_detail_controller.dart';
 
 /// Staff report detail (HOD/technician): full report view plus the lifecycle
@@ -81,6 +82,29 @@ class _StaffDetailScreenState extends State<StaffDetailScreen> {
     }
   }
 
+  Future<void> _assign() async {
+    final staff = await showDialog<AssignableStaff>(
+      context: context,
+      builder: (context) => _AssignDialog(controller: _controller),
+    );
+    if (staff == null) return;
+    final accepted = await _controller.assignTo(staff.id);
+    if (accepted) {
+      _showMessage('Assigned to ${staff.fullName}.');
+    } else {
+      _showMessage("Couldn't assign the report. Please try again.");
+    }
+  }
+
+  Future<void> _unassign() async {
+    final accepted = await _controller.unassign();
+    if (accepted) {
+      _showMessage('Assignment removed.');
+    } else {
+      _showMessage("Couldn't remove the assignment. Please try again.");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
@@ -121,6 +145,14 @@ class _StaffDetailScreenState extends State<StaffDetailScreen> {
             assigneeId: detail.activeAssigneeId,
             authorLabel: 'Student report',
           ),
+          if (controller.canManageAssignments) ...[
+            const SizedBox(height: 12),
+            _AssignmentCard(
+              controller: controller,
+              onAssign: _assign,
+              onUnassign: _unassign,
+            ),
+          ],
           if (report.description.isNotEmpty) ...[
             const SizedBox(height: 12),
             ReportSectionCard(
@@ -271,7 +303,7 @@ class _ActionBar extends StatelessWidget {
                       ? null
                       : () => onStatus(others[i]),
                   icon: Icon(_actionIcon(others[i]), size: 18),
-                  label: Text(_actionLabel(others[i])),
+                  label: Text(_actionLabel(others[i], controller.report?.status)),
                 ),
               ),
             ],
@@ -282,12 +314,21 @@ class _ActionBar extends StatelessWidget {
   }
 }
 
-String _actionLabel(ReportStatus status) => switch (status) {
-      ReportStatus.underReview => 'Start review',
-      ReportStatus.inProgress => 'Mark in progress',
-      ReportStatus.resolved => 'Mark resolved',
+String _actionLabel(ReportStatus status, [ReportStatus? current]) {
+  if (current == ReportStatus.resolved || current == ReportStatus.rejected) {
+    return switch (status) {
+      ReportStatus.underReview => 'Reopen review',
+      ReportStatus.inProgress => 'Reopen work',
       _ => status.label,
     };
+  }
+  return switch (status) {
+    ReportStatus.underReview => 'Start review',
+    ReportStatus.inProgress => 'Mark in progress',
+    ReportStatus.resolved => 'Mark resolved',
+    _ => status.label,
+  };
+}
 
 IconData _actionIcon(ReportStatus status) => switch (status) {
       ReportStatus.underReview => Icons.rate_review_outlined,
@@ -295,6 +336,133 @@ IconData _actionIcon(ReportStatus status) => switch (status) {
       ReportStatus.resolved => Icons.check_circle_outline,
       _ => Icons.arrow_forward,
     };
+
+/// Assignment management card (operations/admin only): shows the current
+/// assignee and offers assign/change/unassign. Push-only (D3) — assignment
+/// takes effect immediately.
+class _AssignmentCard extends StatelessWidget {
+  const _AssignmentCard({
+    required this.controller,
+    required this.onAssign,
+    required this.onUnassign,
+  });
+
+  final StaffDetailController controller;
+  final Future<void> Function() onAssign;
+  final Future<void> Function() onUnassign;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final assigneeName = controller.assigneeName;
+    return ReportSectionCard(
+      title: 'Assignment',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                assigneeName != null
+                    ? Icons.person_pin_circle_outlined
+                    : Icons.person_off_outlined,
+                size: 20,
+                color: theme.colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  assigneeName ?? 'Not assigned',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: assigneeName != null
+                        ? null
+                        : theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              ),
+              OutlinedButton.icon(
+                onPressed: controller.assignmentInFlight ? null : onAssign,
+                icon: const Icon(Icons.swap_horiz, size: 18),
+                label: Text(assigneeName != null ? 'Change' : 'Assign'),
+              ),
+              if (assigneeName != null) ...[
+                const SizedBox(width: 8),
+                IconButton(
+                  onPressed:
+                      controller.assignmentInFlight ? null : onUnassign,
+                  tooltip: 'Remove assignment',
+                  icon: const Icon(Icons.link_off),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Staff picker dialog backed by the ops/admin `list_assignable_staff` RPC.
+class _AssignDialog extends StatelessWidget {
+  const _AssignDialog({required this.controller});
+
+  final StaffDetailController controller;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final staff = controller.staffDirectory;
+    return AlertDialog(
+      title: const Text('Assign to staff'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: staff.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                child: Text(
+                  'No staff members available.',
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+              )
+            : ListView(
+                shrinkWrap: true,
+                children: [
+                  for (final member in staff)
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.badge_outlined),
+                      title: Text(member.fullName),
+                      subtitle: Text(
+                        [
+                          _roleLabel(member.role),
+                          if (member.departmentCode != null)
+                            member.departmentCode!,
+                        ].join(' · '),
+                      ),
+                      onTap: () => Navigator.of(context).pop(member),
+                    ),
+                ],
+              ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(null),
+          child: const Text('Cancel'),
+        ),
+      ],
+    );
+  }
+
+  static String _roleLabel(String role) => switch (role) {
+        'hod' => 'HOD',
+        'technician' => 'Technician',
+        'operations' => 'Operations',
+        'admin' => 'Admin',
+        _ => role,
+      };
+}
 
 class _RejectDialog extends StatefulWidget {
   @override

@@ -6,36 +6,44 @@ import '../reports/data/models/report_comment.dart';
 import '../reports/data/models/report_detail.dart';
 import '../reports/data/models/report_status.dart';
 import '../reports/data/reports_repository.dart';
+import 'data/assignable_staff.dart';
 import 'data/staff_reports_repository.dart';
 
 enum StaffDetailStatus { loading, ready, error }
 
-/// State for one report in the HOD queue: detail, comments, evidence, activity
-/// timeline, and the lifecycle status actions permitted for HOD
-/// (pending â†’ under_review/in_progress/rejected, under_review â†’
-/// in_progress/rejected, in_progress â†’ resolved/rejected). The database
-/// (`can_transition_status`) is the authority; the client only surfaces the
-/// actions the HOD may legally take and reports server rejection.
+/// State for one report in the staff queue: detail, comments, evidence,
+/// activity timeline, and the lifecycle status actions permitted for the
+/// role (pending -> under_review/in_progress/rejected, under_review ->
+/// in_progress/rejected, in_progress -> resolved/rejected; operations/admin
+/// additionally reopen resolved/rejected reports, D4/D5). The database
+/// (`can_transition_status`, `can_manage_assignment`) is the authority; the
+/// client only surfaces the actions the role may legally take and reports
+/// server rejection.
 class StaffDetailController extends ChangeNotifier {
   StaffDetailController({
     required ReportsRepository repository,
     required StaffReportsRepository staffRepository,
     required String reportId,
+    String role = '',
   })  : _repository = repository,
         _staffRepository = staffRepository,
-        _reportId = reportId {
+        _reportId = reportId,
+        _role = role {
     load();
   }
 
   final ReportsRepository _repository;
   final StaffReportsRepository _staffRepository;
   final String _reportId;
+  final String _role;
 
   StaffDetailStatus _status = StaffDetailStatus.loading;
   ReportDetail? _detail;
   Object? _error;
   bool _commentInFlight = false;
   bool _statusInFlight = false;
+  bool _assignmentInFlight = false;
+  List<AssignableStaff> _staffDirectory = const [];
 
   StaffDetailStatus get status => _status;
   ReportDetail? get detail => _detail;
@@ -43,11 +51,33 @@ class StaffDetailController extends ChangeNotifier {
   Object? get error => _error;
   bool get commentInFlight => _commentInFlight;
   bool get statusInFlight => _statusInFlight;
+  bool get assignmentInFlight => _assignmentInFlight;
+
+  /// Whether the caller's role may manage assignments (D2: O/A only).
+  bool get canManageAssignments =>
+      _role == 'operations' || _role == 'admin';
+
+  /// Whether the caller's role may reopen (D4/D5: O/A only).
+  bool get canReopen => canManageAssignments;
 
   bool get isAssigned => _detail?.activeAssigneeId != null;
 
-  /// The status transitions the HOD may offer, per the approved lifecycle
-  /// matrix (HOD row). `in_progress` requires an active assignment (D8).
+  /// Assignee display name resolved from the staff directory, when loaded.
+  String? get assigneeName {
+    final assigneeId = _detail?.activeAssigneeId;
+    if (assigneeId == null) return null;
+    for (final staff in _staffDirectory) {
+      if (staff.id == assigneeId) return staff.fullName;
+    }
+    return null;
+  }
+
+  /// Staff directory for the assignment picker (loaded for ops/admin).
+  List<AssignableStaff> get staffDirectory => _staffDirectory;
+
+  /// The status transitions the caller may offer, per the approved lifecycle
+  /// matrix. `in_progress` requires an active assignment (D8); reopen targets
+  /// follow D4/D5 (ops/admin only, new assignment required for in_progress).
   List<ReportStatus> get availableTransitions {
     final current = _detail?.report.status;
     final assigned = isAssigned;
@@ -65,6 +95,16 @@ class StaffDetailController extends ChangeNotifier {
         ];
       case ReportStatus.inProgress:
         return [ReportStatus.resolved, ReportStatus.rejected];
+      case ReportStatus.resolved:
+      case ReportStatus.rejected:
+        // Reopen (D4/D5): ops/admin only AND a new active assignment is
+        // required (D8) — resolve/reject deactivated the old one, so the
+        // ops user assigns first, then the reopen actions appear.
+        if (!canReopen || !assigned) return const [];
+        return [
+          ReportStatus.underReview,
+          ReportStatus.inProgress,
+        ];
       default:
         return const [];
     }
@@ -80,6 +120,9 @@ class StaffDetailController extends ChangeNotifier {
     notifyListeners();
     try {
       _detail = await _repository.fetchDetail(_reportId);
+      if (canManageAssignments && _staffDirectory.isEmpty) {
+        _staffDirectory = await _staffRepository.listAssignableStaff();
+      }
       _status = StaffDetailStatus.ready;
     } catch (error) {
       _error = error;
@@ -119,6 +162,42 @@ class StaffDetailController extends ChangeNotifier {
       }
     }
     return changeStatus(ReportStatus.rejected);
+  }
+
+  /// Assigns [assigneeId] (push-only, D3; ops/admin only) and reloads the
+  /// detail. Returns whether the database accepted the assignment.
+  Future<bool> assignTo(String assigneeId) async {
+    if (_assignmentInFlight || !canManageAssignments) return false;
+    _assignmentInFlight = true;
+    notifyListeners();
+    try {
+      final accepted =
+          await _staffRepository.assign(reportId: _reportId, assigneeId: assigneeId);
+      if (accepted) {
+        await load();
+      }
+      return accepted;
+    } finally {
+      _assignmentInFlight = false;
+      notifyListeners();
+    }
+  }
+
+  /// Deactivates the current assignment (ops/admin only) and reloads.
+  Future<bool> unassign() async {
+    if (_assignmentInFlight || !canManageAssignments || !isAssigned) return false;
+    _assignmentInFlight = true;
+    notifyListeners();
+    try {
+      final accepted = await _staffRepository.unassign(reportId: _reportId);
+      if (accepted) {
+        await load();
+      }
+      return accepted;
+    } finally {
+      _assignmentInFlight = false;
+      notifyListeners();
+    }
   }
 
   Future<void> addComment(String message) async {

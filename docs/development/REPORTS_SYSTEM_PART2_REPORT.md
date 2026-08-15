@@ -356,3 +356,51 @@ caught by the simulation and fixed in `20260815122000_fix_routed_staff_helper.sq
 
 - Still 30/30 migrations (client-only phase). Next: Phase 2.6 Operations panel (assignment management,
   D2/D8 enforcement UI, reopen for O/A).
+
+---
+
+## 20. Phase 2.6 — Operations panel (2026-08-15)
+
+### 20.1 Backend (one new migration, 31/31 recorded, Local = Remote)
+
+`20260815123000_list_assignable_staff_rpc.sql` — `profiles` RLS allows only own-row
+reads (or admin), so the assignment picker needed a staff directory:
+`public.list_assignable_staff()` is a SECURITY DEFINER RPC returning id/full_name/role/
+department_code of all non-student profiles, gated in-body to `operations`/`admin`
+(everyone else gets an empty set — no RLS bypass).
+
+### 20.2 Delivered (Flutter)
+
+- `StaffReportsRepository`: `listAssignableStaff` (RPC), `assign` (POST
+  `report_assignments`, push-only D3), `unassign` (PATCH active=false). New model
+  `AssignableStaff`.
+- `StaffDetailController` (role-aware): `canManageAssignments`/`canReopen` (ops/admin),
+  staff directory loaded on open, `assignTo`/`unassign` with reload, `assigneeName`
+  resolution, and reopen transitions — **offered only when a new active assignment
+  exists (D8), matching the backend rule that reopen to ANY target requires an active
+  assignment** (caught by reading `can_transition_status` before implementing; the
+  client mirrors the DB exactly).
+- `StaffDetailScreen`: `_AssignmentCard` (ops/admin only — current assignee, Assign/
+  Change/Unassign) + `_AssignDialog` (staff picker with role/department labels);
+  action bar gains "Reopen review"/"Reopen work" for resolved/rejected.
+- `StaffHomeShell` routes `operations` to the shared queue.
+
+### 20.3 Verification
+
+- **209/209 tests passing** (12 new: reopen gating incl. D8, assignment flows, RPC
+  directory gating, picker dialog, assignment card visibility), `flutter analyze`
+  clean, APK built.
+- **Live E2E with real ops JWT** (General dept, Infrastructure probe): queue = exactly
+  the routed ops report; `list_assignable_staff` returns the directory for ops and
+  **[]** for a technician JWT; `pending -> under_review` → 200; assignment POST as ops
+  → 201 and as technician → **403** (D2); `-> in_progress`/`-> resolved` → 200;
+  `resolved -> under_review` without a fresh assignment → **403** (D8); reassign → 201;
+  reopen `-> under_review` → 200 (D5); unassign PATCH → 200. Assignee notification
+  trail observed per D9 (`assignment` on assign/reassign/deactivate, `status_change`
+  on progress/reopen, `report_new` on creation). All artifacts and test users removed
+  afterwards (baseline: 1 report, 0 notifications, 0 assignments).
+
+### 20.4 Status
+
+Next: Phase 2.7 Admin panel (read-all queue, moderation soft-delete/restore), 2.8
+notifications inbox polish, 2.9 analytics RPCs (D6), 2.10 security/test audit.

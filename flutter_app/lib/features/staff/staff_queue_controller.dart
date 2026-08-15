@@ -7,19 +7,22 @@ import 'staff_detail_controller.dart';
 
 enum StaffQueueStatus { loading, ready, error }
 
-/// HOD department queue state: the D1-scoped routed feed with status/search
+/// Staff queue state: the D1-scoped routed feed with status/search
 /// filters. RLS returns exactly the queue; the client only renders it.
 class StaffQueueController extends ChangeNotifier {
   StaffQueueController({
     required StaffReportsRepository repository,
     ReportsRepository? detailRepository,
+    String role = '',
   })  : _repository = repository,
-        _detailRepository = detailRepository {
+        _detailRepository = detailRepository,
+        _role = role {
     load();
   }
 
   final StaffReportsRepository _repository;
   final ReportsRepository? _detailRepository;
+  final String _role;
 
   StaffQueueStatus _status = StaffQueueStatus.loading;
   List<Report> _reports = const [];
@@ -42,6 +45,7 @@ class StaffQueueController extends ChangeNotifier {
         repository: _detailRepository ?? ReportsRepository(),
         staffRepository: _repository,
         reportId: reportId,
+        role: _role,
       );
 
   Future<void> load() async {

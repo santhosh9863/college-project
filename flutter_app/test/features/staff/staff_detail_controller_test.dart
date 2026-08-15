@@ -4,6 +4,7 @@ import 'package:college_project_app/features/reports/data/models/report_detail.d
 import 'package:college_project_app/features/reports/data/models/report_priority.dart';
 import 'package:college_project_app/features/reports/data/models/report_status.dart';
 import 'package:college_project_app/features/reports/data/reports_repository.dart';
+import 'package:college_project_app/features/staff/data/assignable_staff.dart';
 import 'package:college_project_app/features/staff/data/staff_reports_repository.dart';
 import 'package:college_project_app/features/staff/staff_detail_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,22 +27,27 @@ Report _report({ReportStatus status = ReportStatus.pending}) => Report(
       updatedAt: DateTime(2026, 8, 15),
     );
 
-ReportDetail _detail({ReportStatus status = ReportStatus.pending, bool assigned = false}) =>
+ReportDetail _detail({
+  ReportStatus status = ReportStatus.pending,
+  bool assigned = false,
+  String assignee = 'staff-1',
+}) =>
     ReportDetail(
       report: _report(status: status),
       comments: const [],
       evidence: const [],
       activity: const [],
-      activeAssigneeId: assigned ? 'staff-1' : null,
+      activeAssigneeId: assigned ? assignee : null,
     );
 
 /// Shared mutable server state so a status transition persists across the
 /// staff-repository update and the subsequent detail reload.
 class _ServerState {
-  _ServerState(this.status, {this.assigned = false});
+  _ServerState(this.status, {bool assigned = false, String assignee = 'staff-1'})
+      : assignee = assigned ? assignee : null;
 
   ReportStatus status;
-  bool assigned;
+  String? assignee;
 }
 
 class _FakeReportsRepository extends ReportsRepository {
@@ -58,7 +64,11 @@ class _FakeReportsRepository extends ReportsRepository {
   @override
   Future<ReportDetail> fetchDetail(String reportId) async {
     fetchCalls++;
-    return _detail(status: state.status, assigned: state.assigned);
+    return _detail(
+      status: state.status,
+      assigned: state.assignee != null,
+      assignee: state.assignee ?? 'staff-1',
+    );
   }
 
   @override
@@ -83,7 +93,11 @@ class _FakeStaffRepository extends StaffReportsRepository {
   bool accepted = true;
   ReportStatus? lastStatus;
   String? lastReportId;
+  String? lastAssignee;
   int calls = 0;
+  int assignCalls = 0;
+  int unassignCalls = 0;
+  bool directoryCalls = false;
 
   @override
   Future<bool> updateStatus({
@@ -97,6 +111,42 @@ class _FakeStaffRepository extends StaffReportsRepository {
     state.status = newStatus;
     return true;
   }
+
+  @override
+  Future<List<AssignableStaff>> listAssignableStaff() async {
+    directoryCalls = true;
+    return const [
+      AssignableStaff(id: 'staff-1', fullName: 'Anu Sharma', role: 'technician'),
+      AssignableStaff(
+        id: 'staff-2',
+        fullName: 'Ravi Menon',
+        role: 'hod',
+        departmentCode: 'GENERAL',
+      ),
+    ];
+  }
+
+  @override
+  Future<bool> assign({
+    required String reportId,
+    required String assigneeId,
+  }) async {
+    assignCalls++;
+    lastReportId = reportId;
+    lastAssignee = assigneeId;
+    if (!accepted) return false;
+    state.assignee = assigneeId;
+    return true;
+  }
+
+  @override
+  Future<bool> unassign({required String reportId}) async {
+    unassignCalls++;
+    lastReportId = reportId;
+    if (!accepted) return false;
+    state.assignee = null;
+    return true;
+  }
 }
 
 void main() {
@@ -106,11 +156,13 @@ void main() {
     _ServerState state, {
     _FakeReportsRepository? repo,
     _FakeStaffRepository? staff,
+    String role = '',
   }) =>
       StaffDetailController(
         repository: repo ?? _FakeReportsRepository(state),
         staffRepository: staff ?? _FakeStaffRepository(state),
         reportId: 'r-1',
+        role: role,
       );
 
   group('StaffDetailController', () {
@@ -168,6 +220,45 @@ void main() {
 
           expect(controller.availableTransitions, isEmpty, reason: 'for $status');
         }
+      });
+
+      test('operations may reopen resolved reports to review', () async {
+        final controller = build(
+          _ServerState(ReportStatus.resolved, assigned: true),
+          role: 'operations',
+        );
+        await settle();
+
+        expect(controller.availableTransitions, [
+          ReportStatus.underReview,
+          ReportStatus.inProgress,
+        ]);
+      });
+
+      test('operations reopen requires a new active assignment (D8)', () async {
+        final unassigned = build(
+          _ServerState(ReportStatus.rejected),
+          role: 'operations',
+        );
+        await settle();
+        expect(unassigned.availableTransitions, isEmpty);
+
+        final unassignedResolved = build(
+          _ServerState(ReportStatus.resolved),
+          role: 'operations',
+        );
+        await settle();
+        expect(unassignedResolved.availableTransitions, isEmpty);
+      });
+
+      test('technician cannot reopen resolved reports', () async {
+        final controller = build(
+          _ServerState(ReportStatus.resolved),
+          role: 'technician',
+        );
+        await settle();
+
+        expect(controller.availableTransitions, isEmpty);
       });
     });
 
@@ -250,6 +341,96 @@ void main() {
 
       expect(controller.detail!.comments, hasLength(1));
       expect(controller.detail!.comments.first.message, 'Investigating.');
+    });
+
+    group('assignment management (operations)', () {
+      test('assigns a staff member and reloads the detail', () async {
+        final state = _ServerState(ReportStatus.pending);
+        final repo = _FakeReportsRepository(state);
+        final staff = _FakeStaffRepository(state);
+        final controller = build(
+          state,
+          repo: repo,
+          staff: staff,
+          role: 'operations',
+        );
+        await settle();
+
+        final accepted = await controller.assignTo('staff-2');
+
+        expect(accepted, isTrue);
+        expect(staff.assignCalls, 1);
+        expect(staff.lastAssignee, 'staff-2');
+        expect(controller.isAssigned, isTrue);
+        expect(controller.assigneeName, 'Ravi Menon');
+      });
+
+      test('unassign removes the assignment and reloads', () async {
+        final state = _ServerState(ReportStatus.pending, assigned: true);
+        final staff = _FakeStaffRepository(state);
+        final controller = build(
+          state,
+          staff: staff,
+          role: 'operations',
+        );
+        await settle();
+
+        final accepted = await controller.unassign();
+
+        expect(accepted, isTrue);
+        expect(staff.unassignCalls, 1);
+        expect(controller.isAssigned, isFalse);
+      });
+
+      test('refuses to assign when the database rejects', () async {
+        final state = _ServerState(ReportStatus.pending);
+        final staff = _FakeStaffRepository(state)..accepted = false;
+        final controller = build(
+          state,
+          staff: staff,
+          role: 'operations',
+        );
+        await settle();
+
+        final accepted = await controller.assignTo('staff-2');
+
+        expect(accepted, isFalse);
+        expect(controller.isAssigned, isFalse);
+      });
+
+      test('refuses assignment management for non-operations roles', () async {
+        final controller = build(
+          _ServerState(ReportStatus.pending),
+          role: 'hod',
+        );
+        await settle();
+
+        expect(controller.canManageAssignments, isFalse);
+        expect(await controller.assignTo('staff-2'), isFalse);
+        expect(await controller.unassign(), isFalse);
+      });
+
+      test('loads the staff directory only for operations', () async {
+        final opsStaff = _FakeStaffRepository(_ServerState(ReportStatus.pending));
+        final ops = build(
+          _ServerState(ReportStatus.pending),
+          staff: opsStaff,
+          role: 'operations',
+        );
+        await settle();
+        expect(opsStaff.directoryCalls, isTrue);
+        expect(ops.staffDirectory, hasLength(2));
+
+        final hodStaff = _FakeStaffRepository(_ServerState(ReportStatus.pending));
+        final hod = build(
+          _ServerState(ReportStatus.pending),
+          staff: hodStaff,
+          role: 'hod',
+        );
+        await settle();
+        expect(hodStaff.directoryCalls, isFalse);
+        expect(hod.staffDirectory, isEmpty);
+      });
     });
   });
 }

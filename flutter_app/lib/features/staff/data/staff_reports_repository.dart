@@ -2,8 +2,9 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../reports/data/models/report.dart';
 import '../../reports/data/models/report_status.dart';
+import 'assignable_staff.dart';
 
-/// Staff (HOD) report operations. The database is the authority: RLS returns
+/// Staff report operations. The database is the authority: RLS returns
 /// exactly the D1 department-scoped routed queue on read, and `can_update_report`
 /// gates the status transitions on write. No client-side filtering or
 /// permission logic lives here.
@@ -64,6 +65,43 @@ class StaffReportsRepository {
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         })
         .eq('id', reportId)
+        .select('id');
+    return rows.isNotEmpty;
+  }
+
+  /// Staff directory for the assignment picker (ops/admin only; the RPC is
+  /// gated in-database, other roles get an empty list).
+  Future<List<AssignableStaff>> listAssignableStaff() async {
+    final rows = await _client.rpc('list_assignable_staff');
+    return (rows as List)
+        .map((row) => AssignableStaff.fromJson(row as Map<String, dynamic>))
+        .toList();
+  }
+
+  /// Assigns [assigneeId] to [reportId] (push-only, D3). The insert policy
+  /// requires ops/admin and a staff target (`can_manage_assignment`); the
+  /// before-insert trigger deactivates any prior active assignment.
+  Future<bool> assign({
+    required String reportId,
+    required String assigneeId,
+  }) async {
+    final rows = await _client.from('report_assignments').insert({
+      'report_id': reportId,
+      'assigned_by': _userId,
+      'assigned_to': assigneeId,
+      'active': true,
+    }).select('id');
+    return rows.isNotEmpty;
+  }
+
+  /// Deactivates the current active assignment for [reportId] (ops/admin
+  /// only per the update policy; the deactivation trigger logs `unassigned`).
+  Future<bool> unassign({required String reportId}) async {
+    final rows = await _client
+        .from('report_assignments')
+        .update({'active': false})
+        .eq('report_id', reportId)
+        .eq('active', true)
         .select('id');
     return rows.isNotEmpty;
   }
