@@ -474,3 +474,38 @@ server-generated rows), 2.9 analytics RPCs (D6), 2.10 security/test audit.
 
 Next: 2.9 Analytics (view-gated aggregate RPCs, D6) + dashboard screens, 2.10
 security/RLS/test audit.
+
+---
+
+## 23. Phase 2.9 — Analytics / Insights (2026-08-15)
+
+### 23.1 Delivered
+
+- **Migration `20260815124000_analytics_overview_rpc.sql`** (32/32 pushed): a single
+  SECURITY DEFINER RPC `analytics_overview()` returning `total_reports`,
+  `open_reports`, `by_status`, `by_category`, `by_priority` and
+  `resolved_avg_days`. Aggregates are computed in SQL over exactly the rows the
+  caller may see — the SAME predicate as the feed (`report_visible_to_caller`),
+  re-evaluated per row with `auth.uid()`, so the function can never return data
+  the caller could not already read (D6). No client-side aggregation over the
+  50-row feed cap. Soft-deleted reports are excluded from analytics for everyone;
+  the admin moderation queue still lists them separately.
+- **Flutter**: `AnalyticsRepository.fetchOverview()` → `AnalyticsOverview` model;
+  thin `AnalyticsController`; role-agnostic `InsightsScreen` (summary tiles +
+  status/priority/category breakdowns with progress bars, empty + error/retry
+  states) reachable from an Insights icon in BOTH shells' app bars.
+
+### 23.2 Verification
+
+- **237/237 tests passing** (9 new: model parsing + defaults, RPC repository
+  call-shape + empty-row error, controller success/error, screen rendering /
+  empty / error states), `flutter analyze` clean, APK built.
+- **Live D6 gating check** (4 fresh role users + profiles, cleaned up after):
+  new student → 0/0 (no own reports); HOD (General) → 0/0 (ss routes to
+  technician/operations — department scope reflected in analytics); technician
+  (General) → 1/1 with `{"pending":1}` / `{"IT & Network":1}` / `{"medium":1}`
+  matching the real ss report exactly; admin → 1/1. Baseline unchanged.
+
+### 23.3 Status
+
+Next: 2.10 security/RLS/test audit (final phase).

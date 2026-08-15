@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../services/auth_controller.dart';
+import '../analytics/analytics_controller.dart';
+import '../analytics/data/analytics_repository.dart';
+import '../analytics/insights_screen.dart';
 import '../attendance/attendance_controller.dart';
 import '../attendance/data/linways_attendance_repository.dart';
 import '../attendance/import/import_controller.dart';
@@ -93,6 +96,16 @@ class _HomeShellState extends State<HomeShell> {
     _reportsController.load();
   }
 
+  Future<void> _openInsights() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => InsightsScreen(
+          controller: AnalyticsController(repository: AnalyticsRepository()),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final role = widget.controller.profile?.role;
@@ -113,6 +126,13 @@ class _HomeShellState extends State<HomeShell> {
             _ => 'Profile',
           },
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Insights',
+            icon: const Icon(Icons.insights_outlined),
+            onPressed: _openInsights,
+          ),
+        ],
       ),
       body: IndexedStack(
         index: _selectedIndex,

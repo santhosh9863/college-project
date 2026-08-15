@@ -1,6 +1,9 @@
 ﻿import 'package:flutter/material.dart';
 
 import '../../services/auth_controller.dart';
+import '../analytics/analytics_controller.dart';
+import '../analytics/data/analytics_repository.dart';
+import '../analytics/insights_screen.dart';
 import '../notifications/data/notifications_repository.dart';
 import '../notifications/notifications_controller.dart';
 import '../notifications/notifications_screen.dart';
@@ -64,6 +67,16 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
     _queueController.load();
   }
 
+  Future<void> _openInsights() async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => InsightsScreen(
+          controller: AnalyticsController(repository: AnalyticsRepository()),
+        ),
+      ),
+    );
+  }
+
   String get _panelTitle => switch (widget.role) {
         'hod' => 'Department reports',
         'technician' => 'Technician panel',
@@ -83,6 +96,13 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
             _ => 'Profile',
           },
         ),
+        actions: [
+          IconButton(
+            tooltip: 'Insights',
+            icon: const Icon(Icons.insights_outlined),
+            onPressed: _openInsights,
+          ),
+        ],
       ),
 body: IndexedStack(
         index: _selectedIndex,
