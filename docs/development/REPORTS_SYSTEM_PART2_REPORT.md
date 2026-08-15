@@ -509,3 +509,51 @@ security/RLS/test audit.
 ### 23.3 Status
 
 Next: 2.10 security/RLS/test audit (final phase).
+
+---
+
+## 24. Phase 2.10 — Security / RLS / test audit (final) (2026-08-15)
+
+### 24.1 Audit scope and findings
+
+- **Migration integrity**: 33/33 applied, Local = Remote, no drift. No applied
+  migration was ever modified (corrective migrations only).
+- **Secrets**: no API keys, tokens or credentials anywhere in git history
+  (scan of the full `git log --all -p` for key material).
+- **RLS**: enabled on all 15 application tables (`repro_diag` was an ad-hoc
+  diagnostics table with RLS OFF and default PUBLIC grants — dropped). Write
+  surface is minimal and gated: `reports` UPDATE only on
+  (status, deleted_at, updated_at) via `reports_update_gated`; no DELETE grant
+  on `reports` at all; `report_assignments` INSERT/UPDATE ops/admin only;
+  `community_members` admin-context only.
+- **Function ACL hardening (migration `20260815125000_security_hardening.sql`)**:
+  Supabase's platform default privileges grant EXECUTE on every new function to
+  anon/authenticated/service_role, so the earlier `revoke ... from public` left
+  client EXECUTE grants in the stored ACLs (PostgREST empirically refused the
+  calls — 404/401 — but the ACL did not match intent). The hardening migration
+  revokes EXECUTE from anon on every public function and from both client roles
+  on `server_notify`/`server_activity` (server-write helpers called only from
+  SECURITY DEFINER triggers, which run as the owner).
+- **Post-fix live re-verification**: anon `analytics_overview` /
+  `list_assignable_staff` → 401 (blocked); authenticated `analytics_overview` →
+  200; authenticated `server_notify` → 404; student status PATCH on a visible
+  report → 404 (no change). A fresh student report INSERT produced the
+  `created` activity row (activity=1) proving the SECURITY DEFINER trigger chain
+  survives the revokes; the `report_new` notification was 0 because no staff
+  profiles exist in the current data (routing is role+department based — the
+  D9 notification path was already proven live in Phases 2.4–2.6 with staff
+  present).
+- **Baseline restored**: reports 1 (ss), notifications 0, assignments 0,
+  activity 1 (ss's legit `created` row), 7 real users = 7 profiles, no leftover
+  test users (test artifacts cleaned up after every live check).
+
+### 24.2 Final suite
+
+- 237/237 widget/unit tests passing, `flutter analyze` clean, debug APK built.
+
+### 24.3 Part 2 status
+
+All ten phases complete: 2.1 design lock → 2.10 audit. Database 33/33
+migrations (1 corrective hardening for the function-ACL finding), five panels
+(student/hod/technician/operations/admin), view-gated analytics, tap-through
+notifications with unread badges, and a clean security posture.
