@@ -31,22 +31,42 @@ class StaffHomeShell extends StatefulWidget {
 class _StaffHomeShellState extends State<StaffHomeShell> {
   int _selectedIndex = 0;
 
-  late final StaffQueueController _queueController;
+  late StaffQueueController _queueController;
   late final NotificationsController _notificationsController;
+  late String _panelRole;
 
   @override
   void initState() {
     super.initState();
-    _queueController = StaffQueueController(
+    _panelRole = widget.role;
+    _queueController = _createQueueController(_panelRole);
+    _notificationsController = NotificationsController(
+      repository: NotificationsRepository(),
+    );
+  }
+
+  StaffQueueController _createQueueController(String role) {
+    return StaffQueueController(
       repository: StaffReportsRepository(),
       detailRepository: ReportsRepository(
         currentUserId: widget.controller.currentUser?.id ?? '',
       ),
-      role: widget.role,
+      role: role,
     );
-    _notificationsController = NotificationsController(
-      repository: NotificationsRepository(),
-    );
+  }
+
+  /// Panel switcher: swaps the queue controller to the chosen panel. Backed
+  /// by the logged-in profile's real role for authorization (RLS is the
+  /// boundary) — a shared admin-role demo account can open every panel.
+  void _switchPanel(String role) {
+    if (role == _panelRole) return;
+    setState(() {
+      _panelRole = role;
+      _selectedIndex = 0;
+      _queueController.dispose();
+      _queueController = _createQueueController(role);
+      _queueController.load();
+    });
   }
 
   @override
@@ -77,7 +97,7 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
     );
   }
 
-  String get _panelTitle => switch (widget.role) {
+  String get _panelTitle => switch (_panelRole) {
         'hod' => 'Department reports',
         'technician' => 'Technician panel',
         'operations' => 'Operations panel',
@@ -97,6 +117,34 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
           },
         ),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Switch panel',
+            icon: const Icon(Icons.swap_horiz),
+            onSelected: _switchPanel,
+            itemBuilder: (context) => [
+              for (final entry in const [
+                ('hod', 'HOD panel'),
+                ('technician', 'Technician panel'),
+                ('operations', 'Operations panel'),
+                ('admin', 'Admin panel'),
+              ])
+                PopupMenuItem(
+                  value: entry.$1,
+                  child: Row(
+                    children: [
+                      Icon(
+                        entry.$1 == _panelRole
+                            ? Icons.radio_button_checked
+                            : Icons.radio_button_off,
+                        size: 18,
+                      ),
+                      const SizedBox(width: 8),
+                      Text(entry.$2),
+                    ],
+                  ),
+                ),
+            ],
+          ),
           IconButton(
             tooltip: 'Insights',
             icon: const Icon(Icons.insights_outlined),
@@ -107,13 +155,13 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
 body: IndexedStack(
         index: _selectedIndex,
         children: [
-          if (widget.role == 'hod' ||
-              widget.role == 'technician' ||
-              widget.role == 'operations' ||
-              widget.role == 'admin')
+          if (_panelRole == 'hod' ||
+              _panelRole == 'technician' ||
+              _panelRole == 'operations' ||
+              _panelRole == 'admin')
             StaffQueueScreen(controller: _queueController)
           else
-            _PanelComingSoon(role: widget.role),
+            _PanelComingSoon(role: _panelRole),
           NotificationsScreen(
             controller: _notificationsController,
             onOpen: _openNotificationReport,

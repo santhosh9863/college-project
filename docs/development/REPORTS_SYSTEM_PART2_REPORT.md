@@ -557,3 +557,28 @@ All ten phases complete: 2.1 design lock → 2.10 audit. Database 33/33
 migrations (1 corrective hardening for the function-ACL finding), five panels
 (student/hod/technician/operations/admin), view-gated analytics, tap-through
 notifications with unread badges, and a clean security posture.
+
+---
+
+## 25. Staff login + shared demo panel switcher (2026-08-15)
+
+Requested after Part 2 delivery so the panels can be opened from the app.
+
+- **Edge Function `linways-login`**: a staff branch runs BEFORE the Linways
+  handshake. A username matching an existing profile whose role is
+  hod/technician/operations/admin verifies the password directly against
+  Supabase Auth and returns a real session with the staff role preserved
+  (community null, no Linways cookies). Students are untouched — their Linways
+  usernames never match a staff profile email and they always take the
+  existing handshake (userType STUDENT).
+- **App**: `StaffHomeShell` gained a panel switcher (swap icon in the app bar)
+  that recreates the queue controller for the chosen panel. Authorization stays
+  server-side (RLS + `can_transition_status`); the single shared account has
+  role admin, which passes every database gate, so all four panels can be
+  exercised from one login.
+- **Demo credentials**: `staff@college-project.local` / `Staff@12345`
+  (role admin, General department). Per-role staff accounts (e.g. the HOD
+  account) log in the same way.
+- **Verified live**: staff login 200 with role=admin and empty cookies; wrong
+  password 401; the minted session reads the full admin queue and analytics.
+  237/237 tests, analyze clean, APK rebuilt.

@@ -560,6 +560,54 @@ Deno.serve(async (req) => {
     return jsonResponse(req, { error: "invalid_request", message: "username and password are required" }, 400);
   }
 
+  // --- 1. Staff login path (no Linways handshake) -----------------------------
+  // Staff (hod/technician/operations/admin) are not Linways users. A matching
+  // staff profile routes to a direct Supabase password check; the returned
+  // profile keeps the staff role (the app renders the matching panel). The
+  // single shared demo account (role admin) can open every panel through the
+  // app's panel switcher; real per-role staff accounts work the same way.
+  // Students always continue to the Linways handshake below (their Linways
+  // usernames never match a staff profile email).
+  const STAFF_ROLES = new Set(["hod", "technician", "operations", "admin"]);
+  const { data: staffMatch } = await serviceDb
+    .from("profiles")
+    .select("id, email, full_name, role, department_id, semester, section")
+    .eq("email", username.trim().toLowerCase())
+    .maybeSingle();
+  if (staffMatch && STAFF_ROLES.has(staffMatch.role as string)) {
+    const { data: signIn, error: signInError } = await anonDb.auth.signInWithPassword({
+      email: staffMatch.email as string,
+      password,
+    });
+    if (signInError || !signIn.session) {
+      await recordAttempt(serviceDb, ip, "failure");
+      return jsonResponse(req, { error: "invalid_credentials", message: "Invalid username or password" }, 401);
+    }
+    await clearFailures(serviceDb, ip);
+    await recordAttempt(serviceDb, ip, "success");
+    return jsonResponse(req, {
+      success: true,
+      data: {
+        supabase_session: {
+          access_token: signIn.session.access_token,
+          refresh_token: signIn.session.refresh_token,
+        },
+        profile: {
+          id: staffMatch.id,
+          full_name: staffMatch.full_name,
+          email: staffMatch.email,
+          role: staffMatch.role,
+          department_id: staffMatch.department_id,
+          semester: staffMatch.semester,
+          section: staffMatch.section,
+          student_id: null,
+        },
+        community: null,
+        linways_session_cookies: [],
+      },
+    });
+  }
+
   // --- 1. Linways handshake -------------------------------------------------
   let login: LinwaysLoginResult;
   try {
