@@ -1,8 +1,8 @@
-import 'package:college_project_app/features/reports/data/models/report.dart';
+﻿import 'package:college_project_app/features/reports/data/models/report.dart';
 import 'package:college_project_app/features/reports/data/models/report_priority.dart';
 import 'package:college_project_app/features/reports/data/models/report_status.dart';
 import 'package:college_project_app/features/staff/data/staff_reports_repository.dart';
-import 'package:college_project_app/features/staff/hod_queue_controller.dart';
+import 'package:college_project_app/features/staff/staff_queue_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -50,41 +50,41 @@ class _FakeStaffReportsRepository extends StaffReportsRepository {
 void main() {
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
-  group('HodQueueController', () {
+  group('StaffQueueController', () {
     test('loads the department queue on construction', () async {
       final repo = _FakeStaffReportsRepository(queue: [_report()]);
-      final controller = HodQueueController(repository: repo);
+      final controller = StaffQueueController(repository: repo);
       await settle();
 
-      expect(controller.status, HodQueueStatus.ready);
+      expect(controller.status, StaffQueueStatus.ready);
       expect(controller.reports, hasLength(1));
       expect(repo.calls, 1);
     });
 
     test('empty queue is ready with no reports', () async {
-      final controller = HodQueueController(
+      final controller = StaffQueueController(
         repository: _FakeStaffReportsRepository(),
       );
       await settle();
 
-      expect(controller.status, HodQueueStatus.ready);
+      expect(controller.status, StaffQueueStatus.ready);
       expect(controller.reports, isEmpty);
       expect(controller.hasActiveFilters, isFalse);
     });
 
     test('repo failure moves to error state and keeps the error', () async {
-      final controller = HodQueueController(
+      final controller = StaffQueueController(
         repository: _FakeStaffReportsRepository(fail: true),
       );
       await settle();
 
-      expect(controller.status, HodQueueStatus.error);
+      expect(controller.status, StaffQueueStatus.error);
       expect(controller.error, isA<Exception>());
     });
 
     test('status filter triggers a reload with the filter', () async {
       final repo = _FakeStaffReportsRepository(queue: [_report()]);
-      final controller = HodQueueController(repository: repo);
+      final controller = StaffQueueController(repository: repo);
       await settle();
 
       controller.setStatusFilter('in_progress');
@@ -97,7 +97,7 @@ void main() {
 
     test('search filter triggers a reload and clear resets filters', () async {
       final repo = _FakeStaffReportsRepository(queue: [_report()]);
-      final controller = HodQueueController(repository: repo);
+      final controller = StaffQueueController(repository: repo);
       await settle();
 
       controller.setSearch('projector');

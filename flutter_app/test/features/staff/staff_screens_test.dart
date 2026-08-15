@@ -1,13 +1,13 @@
-import 'package:college_project_app/features/reports/data/models/report.dart';
+﻿import 'package:college_project_app/features/reports/data/models/report.dart';
 import 'package:college_project_app/features/reports/data/models/report_detail.dart';
 import 'package:college_project_app/features/reports/data/models/report_priority.dart';
 import 'package:college_project_app/features/reports/data/models/report_status.dart';
 import 'package:college_project_app/features/reports/data/reports_repository.dart';
 import 'package:college_project_app/features/staff/data/staff_reports_repository.dart';
-import 'package:college_project_app/features/staff/hod_detail_controller.dart';
-import 'package:college_project_app/features/staff/hod_detail_screen.dart';
-import 'package:college_project_app/features/staff/hod_queue_controller.dart';
-import 'package:college_project_app/features/staff/hod_queue_screen.dart';
+import 'package:college_project_app/features/staff/staff_detail_controller.dart';
+import 'package:college_project_app/features/staff/staff_detail_screen.dart';
+import 'package:college_project_app/features/staff/staff_queue_controller.dart';
+import 'package:college_project_app/features/staff/staff_queue_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -89,9 +89,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 10));
   }
 
-  group('HodQueueScreen', () {
+  group('StaffQueueScreen', () {
     testWidgets('renders the department queue tiles', (tester) async {
-      final controller = HodQueueController(
+      final controller = StaffQueueController(
         repository: _FakeStaffReportsRepository(
           queue: [
             _report(id: 'r-1', title: 'Broken projector', status: ReportStatus.pending),
@@ -102,7 +102,7 @@ void main() {
       );
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(body: HodQueueScreen(controller: controller)),
+          home: Scaffold(body: StaffQueueScreen(controller: controller)),
         ),
       );
       await settle(tester);
@@ -114,13 +114,13 @@ void main() {
     });
 
     testWidgets('shows the empty state when the queue has no reports', (tester) async {
-      final controller = HodQueueController(
+      final controller = StaffQueueController(
         repository: _FakeStaffReportsRepository(),
         detailRepository: _FakeReportsRepository(),
       );
       await tester.pumpWidget(
         MaterialApp(
-          home: Scaffold(body: HodQueueScreen(controller: controller)),
+          home: Scaffold(body: StaffQueueScreen(controller: controller)),
         ),
       );
       await settle(tester);
@@ -129,16 +129,16 @@ void main() {
     });
   });
 
-  group('HodDetailScreen', () {
+  group('StaffDetailScreen', () {
     testWidgets('offers review and reject for a pending unassigned report',
         (tester) async {
-      final controller = HodDetailController(
+      final controller = StaffDetailController(
         repository: _FakeReportsRepository(),
         staffRepository: _FakeStaffReportsRepository(),
         reportId: 'r-1',
       );
       await tester.pumpWidget(
-        MaterialApp(home: HodDetailScreen(controller: controller)),
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
       );
       await settle(tester);
 
@@ -149,7 +149,7 @@ void main() {
     });
 
     testWidgets('offers in progress once a report is assigned', (tester) async {
-      final controller = HodDetailController(
+      final controller = StaffDetailController(
         repository: _FakeReportsRepository(
           detail: ReportDetail(
             report: _report(),
@@ -163,7 +163,7 @@ void main() {
         reportId: 'r-1',
       );
       await tester.pumpWidget(
-        MaterialApp(home: HodDetailScreen(controller: controller)),
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
       );
       await settle(tester);
 
@@ -172,7 +172,7 @@ void main() {
     });
 
     testWidgets('offers resolve and reject for an in-progress report', (tester) async {
-      final controller = HodDetailController(
+      final controller = StaffDetailController(
         repository: _FakeReportsRepository(
           detail: ReportDetail(
             report: _report(status: ReportStatus.inProgress),
@@ -186,7 +186,7 @@ void main() {
         reportId: 'r-1',
       );
       await tester.pumpWidget(
-        MaterialApp(home: HodDetailScreen(controller: controller)),
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
       );
       await settle(tester);
 

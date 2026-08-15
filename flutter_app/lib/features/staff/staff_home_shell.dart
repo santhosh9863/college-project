@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../services/auth_controller.dart';
 import '../notifications/data/notifications_repository.dart';
@@ -7,13 +7,13 @@ import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
 import '../reports/data/reports_repository.dart';
 import 'data/staff_reports_repository.dart';
-import 'hod_queue_controller.dart';
-import 'hod_queue_screen.dart';
+import 'staff_queue_controller.dart';
+import 'staff_queue_screen.dart';
 
 /// Staff dashboard shell. Panel selection follows `profiles.role`; the HOD
-/// panel (Phase 2.4) is implemented, other staff roles show a placeholder
-/// until their phase ships. The queue tab renders the D1-scoped department
-/// queue through [HodQueueScreen].
+/// and technician panels (Phases 2.4/2.5) render the D1-scoped routed queue
+/// through [StaffQueueScreen]; operations/admin show a placeholder until
+/// their phase ships.
 class StaffHomeShell extends StatefulWidget {
   const StaffHomeShell({super.key, required this.controller, required this.role});
 
@@ -27,13 +27,13 @@ class StaffHomeShell extends StatefulWidget {
 class _StaffHomeShellState extends State<StaffHomeShell> {
   int _selectedIndex = 0;
 
-  late final HodQueueController _queueController;
+  late final StaffQueueController _queueController;
   late final NotificationsController _notificationsController;
 
   @override
   void initState() {
     super.initState();
-    _queueController = HodQueueController(
+    _queueController = StaffQueueController(
       repository: StaffReportsRepository(),
       detailRepository: ReportsRepository(
         currentUserId: widget.controller.currentUser?.id ?? '',
@@ -71,11 +71,11 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
           },
         ),
       ),
-      body: IndexedStack(
+body: IndexedStack(
         index: _selectedIndex,
         children: [
-          if (widget.role == 'hod')
-            HodQueueScreen(controller: _queueController)
+          if (widget.role == 'hod' || widget.role == 'technician')
+            StaffQueueScreen(controller: _queueController)
           else
             _PanelComingSoon(role: widget.role),
           NotificationsScreen(controller: _notificationsController),

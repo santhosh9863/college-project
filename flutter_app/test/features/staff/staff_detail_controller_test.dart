@@ -1,11 +1,11 @@
-import 'package:college_project_app/features/reports/data/models/report.dart';
+﻿import 'package:college_project_app/features/reports/data/models/report.dart';
 import 'package:college_project_app/features/reports/data/models/report_comment.dart';
 import 'package:college_project_app/features/reports/data/models/report_detail.dart';
 import 'package:college_project_app/features/reports/data/models/report_priority.dart';
 import 'package:college_project_app/features/reports/data/models/report_status.dart';
 import 'package:college_project_app/features/reports/data/reports_repository.dart';
 import 'package:college_project_app/features/staff/data/staff_reports_repository.dart';
-import 'package:college_project_app/features/staff/hod_detail_controller.dart';
+import 'package:college_project_app/features/staff/staff_detail_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -102,24 +102,24 @@ class _FakeStaffRepository extends StaffReportsRepository {
 void main() {
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
-  HodDetailController build(
+  StaffDetailController build(
     _ServerState state, {
     _FakeReportsRepository? repo,
     _FakeStaffRepository? staff,
   }) =>
-      HodDetailController(
+      StaffDetailController(
         repository: repo ?? _FakeReportsRepository(state),
         staffRepository: staff ?? _FakeStaffRepository(state),
         reportId: 'r-1',
       );
 
-  group('HodDetailController', () {
+  group('StaffDetailController', () {
     test('loads the detail and reports assignment state', () async {
       final state = _ServerState(ReportStatus.pending, assigned: true);
       final controller = build(state);
       await settle();
 
-      expect(controller.status, HodDetailStatus.ready);
+      expect(controller.status, StaffDetailStatus.ready);
       expect(controller.report, isNotNull);
       expect(controller.isAssigned, isTrue);
     });

@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+﻿import 'package:flutter/foundation.dart';
 
 import '../reports/data/models/evidence_file.dart';
 import '../reports/data/models/report.dart';
@@ -8,16 +8,16 @@ import '../reports/data/models/report_status.dart';
 import '../reports/data/reports_repository.dart';
 import 'data/staff_reports_repository.dart';
 
-enum HodDetailStatus { loading, ready, error }
+enum StaffDetailStatus { loading, ready, error }
 
 /// State for one report in the HOD queue: detail, comments, evidence, activity
 /// timeline, and the lifecycle status actions permitted for HOD
-/// (pending → under_review/in_progress/rejected, under_review →
-/// in_progress/rejected, in_progress → resolved/rejected). The database
+/// (pending â†’ under_review/in_progress/rejected, under_review â†’
+/// in_progress/rejected, in_progress â†’ resolved/rejected). The database
 /// (`can_transition_status`) is the authority; the client only surfaces the
 /// actions the HOD may legally take and reports server rejection.
-class HodDetailController extends ChangeNotifier {
-  HodDetailController({
+class StaffDetailController extends ChangeNotifier {
+  StaffDetailController({
     required ReportsRepository repository,
     required StaffReportsRepository staffRepository,
     required String reportId,
@@ -31,13 +31,13 @@ class HodDetailController extends ChangeNotifier {
   final StaffReportsRepository _staffRepository;
   final String _reportId;
 
-  HodDetailStatus _status = HodDetailStatus.loading;
+  StaffDetailStatus _status = StaffDetailStatus.loading;
   ReportDetail? _detail;
   Object? _error;
   bool _commentInFlight = false;
   bool _statusInFlight = false;
 
-  HodDetailStatus get status => _status;
+  StaffDetailStatus get status => _status;
   ReportDetail? get detail => _detail;
   Report? get report => _detail?.report;
   Object? get error => _error;
@@ -75,15 +75,15 @@ class HodDetailController extends ChangeNotifier {
       availableTransitions.contains(target);
 
   Future<void> load() async {
-    _status = HodDetailStatus.loading;
+    _status = StaffDetailStatus.loading;
     _error = null;
     notifyListeners();
     try {
       _detail = await _repository.fetchDetail(_reportId);
-      _status = HodDetailStatus.ready;
+      _status = StaffDetailStatus.ready;
     } catch (error) {
       _error = error;
-      _status = HodDetailStatus.error;
+      _status = StaffDetailStatus.error;
     }
     notifyListeners();
   }

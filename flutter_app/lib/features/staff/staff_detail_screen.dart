@@ -1,26 +1,26 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../reports/data/models/report_status.dart';
 import '../reports/widgets/report_detail_widgets.dart';
-import 'hod_detail_controller.dart';
+import 'staff_detail_controller.dart';
 
-/// Staff (HOD) report detail: full report view plus the lifecycle actions the
-/// HOD may take (review/accept, mark in progress, resolve, reject with a
-/// reason). Actions are offered per the approved lifecycle matrix; the
-/// database remains the enforcement.
-class HodDetailScreen extends StatefulWidget {
-  const HodDetailScreen({super.key, required this.controller});
+/// Staff report detail (HOD/technician): full report view plus the lifecycle
+/// actions the staff role may take (review/accept, mark in progress, resolve,
+/// reject with a reason). Actions are offered per the approved lifecycle
+/// matrix; the database remains the enforcement.
+class StaffDetailScreen extends StatefulWidget {
+  const StaffDetailScreen({super.key, required this.controller});
 
-  final HodDetailController controller;
+  final StaffDetailController controller;
 
   @override
-  State<HodDetailScreen> createState() => _HodDetailScreenState();
+  State<StaffDetailScreen> createState() => _StaffDetailScreenState();
 }
 
-class _HodDetailScreenState extends State<HodDetailScreen> {
+class _StaffDetailScreenState extends State<StaffDetailScreen> {
   final _commentController = TextEditingController();
 
-  HodDetailController get _controller => widget.controller;
+  StaffDetailController get _controller => widget.controller;
 
   @override
   void initState() {
@@ -87,13 +87,13 @@ class _HodDetailScreenState extends State<HodDetailScreen> {
     return Scaffold(
       appBar: AppBar(title: const Text('Department report')),
       body: switch (controller.status) {
-        HodDetailStatus.loading =>
+        StaffDetailStatus.loading =>
           const Center(child: CircularProgressIndicator()),
-        HodDetailStatus.error =>
+        StaffDetailStatus.error =>
           ReportDetailErrorBody(error: controller.error, onRetry: controller.load),
-        HodDetailStatus.ready => _buildDetail(context),
+        StaffDetailStatus.ready => _buildDetail(context),
       },
-      bottomNavigationBar: controller.status == HodDetailStatus.ready &&
+      bottomNavigationBar: controller.status == StaffDetailStatus.ready &&
               controller.availableTransitions.isNotEmpty
           ? _ActionBar(
               controller: controller,
@@ -236,7 +236,7 @@ class _ActionBar extends StatelessWidget {
     required this.onReject,
   });
 
-  final HodDetailController controller;
+  final StaffDetailController controller;
   final Future<void> Function(ReportStatus status) onStatus;
   final Future<void> Function() onReject;
 

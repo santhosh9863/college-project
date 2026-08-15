@@ -1,24 +1,24 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 
 import '../../core/utils/relative_time.dart';
 import '../reports/data/models/report.dart';
 import '../reports/data/models/report_priority.dart';
 import '../reports/widgets/report_detail_widgets.dart';
-import 'hod_detail_screen.dart';
-import 'hod_queue_controller.dart';
+import 'staff_detail_screen.dart';
+import 'staff_queue_controller.dart';
 
 /// HOD department queue: the D1-scoped routed reports with status/search
 /// filters. Tapping a report opens the staff detail with lifecycle actions.
-class HodQueueScreen extends StatelessWidget {
-  const HodQueueScreen({super.key, required this.controller});
+class StaffQueueScreen extends StatelessWidget {
+  const StaffQueueScreen({super.key, required this.controller});
 
-  final HodQueueController controller;
+  final StaffQueueController controller;
 
   Future<void> _openDetail(BuildContext context, Report report) async {
     final detailController = controller.detailControllerFor(report.id);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => HodDetailScreen(controller: detailController),
+        builder: (_) => StaffDetailScreen(controller: detailController),
       ),
     );
     detailController.dispose();
@@ -35,12 +35,12 @@ class HodQueueScreen extends StatelessWidget {
             _FilterBar(controller: controller),
             Expanded(
               child: switch (controller.status) {
-                HodQueueStatus.loading =>
+                StaffQueueStatus.loading =>
                   const Center(child: CircularProgressIndicator()),
-                HodQueueStatus.error => _ErrorBody(
+                StaffQueueStatus.error => _ErrorBody(
                     onRetry: controller.load,
                   ),
-                HodQueueStatus.ready => _buildList(context),
+                StaffQueueStatus.ready => _buildList(context),
               },
             ),
           ],
@@ -80,7 +80,7 @@ class HodQueueScreen extends StatelessWidget {
 class _FilterBar extends StatelessWidget {
   const _FilterBar({required this.controller});
 
-  final HodQueueController controller;
+  final StaffQueueController controller;
 
   static const _statusOptions = [
     ('all', 'All'),
@@ -203,7 +203,7 @@ class _ReportTile extends StatelessWidget {
                         ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
                   ),
                   Text(
-                    '·',
+                    'Â·',
                     style: theme.textTheme.bodySmall
                         ?.copyWith(color: theme.colorScheme.outline),
                   ),

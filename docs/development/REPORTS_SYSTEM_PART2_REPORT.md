@@ -322,3 +322,37 @@ caught by the simulation and fixed in `20260815122000_fix_routed_staff_helper.sq
 - 30/30 migrations recorded, Local = Remote (committed `92a7228`; this phase is client-only).
 - Next: Phase 2.5 Technician panel, 2.6 Operations panel (assignment), 2.7 Admin, 2.8 Notifications inbox
   polish, 2.9 analytics RPCs (D6), 2.10 security/test audit.
+
+---
+
+## 19. Phase 2.5 — Technician panel (2026-08-15)
+
+### 19.1 Delivered (client-only; shared staff panel generalization)
+
+- The Phase 2.4 staff components were role-agnostic already (D7: H/T share the same forward-transition
+  set). They were renamed to shared names — `StaffQueueController`/`StaffQueueScreen`,
+  `StaffDetailController`/`StaffDetailScreen` (`lib/features/staff/`, `git mv` tracked) — and
+  `StaffHomeShell` now routes **both** `hod` and `technician` to the queue; operations/admin keep the
+  placeholder until their phases.
+- Technician behavior on the shared panel: D1-scoped routed queue (e.g. IT & Network) + assigned reports;
+  actions per matrix: `pending -> under_review`, `pending -> in_progress` (only with active assignment,
+  D8), `pending -> rejected`, `under_review -> in_progress/rejected`, `in_progress -> resolved/rejected`.
+
+### 19.2 Verification
+
+- **197/197 tests passing**, `flutter analyze` clean (rename-only refactor; controller/screen logic
+  unchanged).
+- **Live E2E with a real technician JWT** (admin-created auth user + profile, General department, IT &
+  Network probe): queue returns exactly the routed IT & Network reports; `pending -> under_review` → 200;
+  `under_review -> in_progress` without assignment → **403** (D8). Assignment created as the ops actor
+  (claims-simulated): `assignment` notification delivered to the assignee (D9), then
+  `under_review -> in_progress` → 200 and `in_progress -> resolved` → 200 with the assignment
+  auto-deactivated (`unassigned` activity, metadata `assigned_to`). Full server trail observed:
+  `created -> status_change -> assigned -> status_change -> status_change -> unassigned` — matches
+  REPORT_LIFECYCLE.md §7 exactly. Probe report, activity, notifications, and the test user removed
+  afterwards (baseline: 1 report, 0 notifications, 0 assignments).
+
+### 19.3 Status
+
+- Still 30/30 migrations (client-only phase). Next: Phase 2.6 Operations panel (assignment management,
+  D2/D8 enforcement UI, reopen for O/A).
