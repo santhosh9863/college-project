@@ -10,7 +10,7 @@ import 'package:college_project_app/features/staff/staff_detail_controller.dart'
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-Report _report({ReportStatus status = ReportStatus.pending}) => Report(
+Report _report({ReportStatus status = ReportStatus.pending, DateTime? deletedAt}) => Report(
       id: 'r-1',
       title: 'Broken projector',
       description: 'Room 12.',
@@ -25,15 +25,17 @@ Report _report({ReportStatus status = ReportStatus.pending}) => Report(
       isSupported: false,
       createdAt: DateTime(2026, 8, 15),
       updatedAt: DateTime(2026, 8, 15),
+      deletedAt: deletedAt,
     );
 
 ReportDetail _detail({
   ReportStatus status = ReportStatus.pending,
   bool assigned = false,
   String assignee = 'staff-1',
+  DateTime? deletedAt,
 }) =>
     ReportDetail(
-      report: _report(status: status),
+      report: _report(status: status, deletedAt: deletedAt),
       comments: const [],
       evidence: const [],
       activity: const [],
@@ -48,6 +50,7 @@ class _ServerState {
 
   ReportStatus status;
   String? assignee;
+  DateTime? deletedAt;
 }
 
 class _FakeReportsRepository extends ReportsRepository {
@@ -68,6 +71,7 @@ class _FakeReportsRepository extends ReportsRepository {
       status: state.status,
       assigned: state.assignee != null,
       assignee: state.assignee ?? 'staff-1',
+      deletedAt: state.deletedAt,
     );
   }
 
@@ -97,6 +101,8 @@ class _FakeStaffRepository extends StaffReportsRepository {
   int calls = 0;
   int assignCalls = 0;
   int unassignCalls = 0;
+  int moderateCalls = 0;
+  bool? lastModerateRestore;
   bool directoryCalls = false;
 
   @override
@@ -145,6 +151,19 @@ class _FakeStaffRepository extends StaffReportsRepository {
     lastReportId = reportId;
     if (!accepted) return false;
     state.assignee = null;
+    return true;
+  }
+
+  @override
+  Future<bool> moderate({
+    required String reportId,
+    required bool restore,
+  }) async {
+    moderateCalls++;
+    lastReportId = reportId;
+    lastModerateRestore = restore;
+    if (!accepted) return false;
+    state.deletedAt = restore ? null : DateTime(2026, 8, 15);
     return true;
   }
 }
@@ -259,6 +278,62 @@ void main() {
         await settle();
 
         expect(controller.availableTransitions, isEmpty);
+      });
+
+      test('admin may close reports from any open status (D3)', () async {
+        for (final status in [
+          ReportStatus.pending,
+          ReportStatus.underReview,
+          ReportStatus.inProgress,
+        ]) {
+          final controller = build(
+            _ServerState(status, assigned: status == ReportStatus.inProgress),
+            role: 'admin',
+          );
+          await settle();
+
+          expect(
+            controller.availableTransitions,
+            contains(ReportStatus.closed),
+            reason: 'for $status',
+          );
+        }
+      });
+
+      test('closed is terminal for admin too (D6)', () async {
+        final controller = build(
+          _ServerState(ReportStatus.closed),
+          role: 'admin',
+        );
+        await settle();
+
+        expect(controller.availableTransitions, isEmpty);
+      });
+
+      test('non-admin roles never see the close action', () async {
+        for (final role in ['hod', 'technician', 'operations']) {
+          final controller = build(
+            _ServerState(ReportStatus.pending),
+            role: role,
+          );
+          await settle();
+
+          expect(
+            controller.availableTransitions,
+            isNot(contains(ReportStatus.closed)),
+            reason: 'for $role',
+          );
+        }
+      });
+
+      test('a soft-deleted report offers no status actions (restore only)', () async {
+        final state = _ServerState(ReportStatus.pending)..deletedAt = DateTime(2026, 8, 15);
+        final controller = build(state, role: 'admin');
+        await settle();
+
+        expect(controller.isDeleted, isTrue);
+        expect(controller.availableTransitions, isEmpty);
+        expect(controller.canModerate, isTrue);
       });
     });
 
@@ -430,6 +505,59 @@ void main() {
         await settle();
         expect(hodStaff.directoryCalls, isFalse);
         expect(hod.staffDirectory, isEmpty);
+      });
+    });
+
+    group('moderation (admin)', () {
+      test('soft-deletes a report and reloads as deleted', () async {
+        final state = _ServerState(ReportStatus.pending);
+        final staff = _FakeStaffRepository(state);
+        final controller = build(
+          state,
+          staff: staff,
+          role: 'admin',
+        );
+        await settle();
+
+        final accepted = await controller.moderate(restore: false);
+
+        expect(accepted, isTrue);
+        expect(staff.moderateCalls, 1);
+        expect(staff.lastModerateRestore, isFalse);
+        expect(controller.isDeleted, isTrue);
+        expect(controller.availableTransitions, isEmpty);
+      });
+
+      test('restores a soft-deleted report (admin only)', () async {
+        final state = _ServerState(ReportStatus.pending)
+          ..deletedAt = DateTime(2026, 8, 15);
+        final staff = _FakeStaffRepository(state);
+        final controller = build(
+          state,
+          staff: staff,
+          role: 'admin',
+        );
+        await settle();
+        expect(controller.isDeleted, isTrue);
+
+        final accepted = await controller.moderate(restore: true);
+
+        expect(accepted, isTrue);
+        expect(staff.lastModerateRestore, isTrue);
+        expect(controller.isDeleted, isFalse);
+      });
+
+      test('refuses moderation for non-admin roles', () async {
+        for (final role in ['hod', 'technician', 'operations']) {
+          final controller = build(
+            _ServerState(ReportStatus.pending),
+            role: role,
+          );
+          await settle();
+
+          expect(controller.canModerate, isFalse, reason: 'for $role');
+          expect(await controller.moderate(restore: false), isFalse);
+        }
       });
     });
   });

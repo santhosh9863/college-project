@@ -167,6 +167,13 @@ class _ReportTile extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (report.deletedAt != null) ...[
+                    const ReportLabelBadge(
+                      icon: Icons.delete_outline,
+                      label: 'Deleted',
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   ReportStatusBadge(status: report.status),
                 ],
               ),

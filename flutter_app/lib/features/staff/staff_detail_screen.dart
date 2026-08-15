@@ -105,6 +105,45 @@ class _StaffDetailScreenState extends State<StaffDetailScreen> {
     }
   }
 
+  Future<void> _moderateDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete this report?'),
+        content: const Text(
+          'The report will be hidden from students. Its status is kept and '
+          'it can be restored later.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep report'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Delete report'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final accepted = await _controller.moderate(restore: false);
+    if (accepted) {
+      _showMessage('Report deleted.');
+    } else {
+      _showMessage("Couldn't delete the report. Please try again.");
+    }
+  }
+
+  Future<void> _moderateRestore() async {
+    final accepted = await _controller.moderate(restore: true);
+    if (accepted) {
+      _showMessage('Report restored.');
+    } else {
+      _showMessage("Couldn't restore the report. Please try again.");
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
@@ -151,6 +190,14 @@ class _StaffDetailScreenState extends State<StaffDetailScreen> {
               controller: controller,
               onAssign: _assign,
               onUnassign: _unassign,
+            ),
+          ],
+          if (controller.canModerate) ...[
+            const SizedBox(height: 12),
+            _ModerationCard(
+              controller: controller,
+              onDelete: _moderateDelete,
+              onRestore: _moderateRestore,
             ),
           ],
           if (report.description.isNotEmpty) ...[
@@ -326,6 +373,7 @@ String _actionLabel(ReportStatus status, [ReportStatus? current]) {
     ReportStatus.underReview => 'Start review',
     ReportStatus.inProgress => 'Mark in progress',
     ReportStatus.resolved => 'Mark resolved',
+    ReportStatus.closed => 'Close report',
     _ => status.label,
   };
 }
@@ -334,6 +382,7 @@ IconData _actionIcon(ReportStatus status) => switch (status) {
       ReportStatus.underReview => Icons.rate_review_outlined,
       ReportStatus.inProgress => Icons.play_circle_outline,
       ReportStatus.resolved => Icons.check_circle_outline,
+      ReportStatus.closed => Icons.lock_outline,
       _ => Icons.arrow_forward,
     };
 
@@ -462,6 +511,66 @@ class _AssignDialog extends StatelessWidget {
         'admin' => 'Admin',
         _ => role,
       };
+}
+
+/// Moderation card (admin only): soft-deletes a report or restores a
+/// soft-deleted one. Status is preserved in both directions (u8/F1); the
+/// database enforces the admin-only restore.
+class _ModerationCard extends StatelessWidget {
+  const _ModerationCard({
+    required this.controller,
+    required this.onDelete,
+    required this.onRestore,
+  });
+
+  final StaffDetailController controller;
+  final Future<void> Function() onDelete;
+  final Future<void> Function() onRestore;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final deleted = controller.isDeleted;
+    return ReportSectionCard(
+      title: 'Moderation',
+      child: Row(
+        children: [
+          Icon(
+            deleted ? Icons.restore_from_trash_outlined : Icons.delete_outline,
+            size: 20,
+            color: deleted
+                ? theme.colorScheme.primary
+                : theme.colorScheme.error,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              deleted
+                  ? 'This report is hidden from students.'
+                  : 'Soft-delete hides the report from students. Its status is kept.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+          const SizedBox(width: 8),
+          if (deleted)
+            FilledButton.tonalIcon(
+              onPressed: controller.assignmentInFlight ? null : onRestore,
+              icon: const Icon(Icons.restore, size: 18),
+              label: const Text('Restore'),
+            )
+          else
+            OutlinedButton.icon(
+              onPressed: controller.assignmentInFlight ? null : onDelete,
+              style: OutlinedButton.styleFrom(
+                foregroundColor: theme.colorScheme.error,
+              ),
+              icon: const Icon(Icons.delete_outline, size: 18),
+              label: const Text('Delete'),
+            ),
+        ],
+      ),
+    );
+  }
 }
 
 class _RejectDialog extends StatefulWidget {

@@ -19,7 +19,7 @@ class StaffReportsRepository {
   static const int _limit = 50;
   static const String _queueSelect =
       'id, title, description, status, priority, category_id, reporter_id, '
-      'community_id, created_at, updated_at, categories(name), report_supports(count)';
+      'community_id, created_at, updated_at, deleted_at, categories(name), report_supports(count)';
 
   /// Department-routed queue (RLS `reports_select_visible` + D1 scope).
   Future<List<Report>> fetchQueue({
@@ -102,6 +102,24 @@ class StaffReportsRepository {
         .update({'active': false})
         .eq('report_id', reportId)
         .eq('active', true)
+        .select('id');
+    return rows.isNotEmpty;
+  }
+
+  /// Moderation: soft-deletes [reportId] (staff on visible reports, status
+  /// unchanged) or restores it (admin only, status preserved). RLS
+  /// (`can_update_report`) is the enforcement.
+  Future<bool> moderate({
+    required String reportId,
+    required bool restore,
+  }) async {
+    final rows = await _client
+        .from('reports')
+        .update({
+          'deleted_at': restore ? null : DateTime.now().toUtc().toIso8601String(),
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        })
+        .eq('id', reportId)
         .select('id');
     return rows.isNotEmpty;
   }

@@ -404,3 +404,40 @@ department_code of all non-student profiles, gated in-body to `operations`/`admi
 
 Next: Phase 2.7 Admin panel (read-all queue, moderation soft-delete/restore), 2.8
 notifications inbox polish, 2.9 analytics RPCs (D6), 2.10 security/test audit.
+
+---
+
+## 21. Phase 2.7 — Admin panel (2026-08-15)
+
+### 21.1 Delivered (client-only; 31/31 migrations unchanged)
+
+- `StaffHomeShell` routes `admin` to the shared queue — RLS already returns **all**
+  reports to admin (D5 read-all, including soft-deleted rows: `report_visible_to_staff`
+  has no `deleted_at` filter), so no backend change was needed.
+- `Report` model + queue select gain `deleted_at`; queue tiles show a "Deleted" marker.
+- `StaffDetailController`: admin-only capabilities surfaced — `canClose` (D3: `-> closed`
+  from pending/under_review/in_progress), `canModerate` (soft-delete + restore, u8/F1),
+  `isDeleted`; `availableTransitions` hides **all** status actions for a soft-deleted
+  report (only restore applies; the DB rejects status changes on deleted rows) and
+  adds `closed` for admin only.
+- `StaffReportsRepository.moderate()` — PATCH `deleted_at` (set or cleared; status
+  untouched, RLS `can_update_report` enforces admin-only restore).
+- `StaffDetailScreen`: "Close report" in the action bar (admin), `_ModerationCard`
+  (Delete with confirm dialog / Restore) and reopen+assign already shared with ops.
+
+### 21.2 Verification
+
+- **218/218 tests passing** (9 new: D3 close from every open status, D6 terminal for
+  admin, close hidden for H/T/O, deleted reports offer no status actions, moderate/
+  restore flows, non-admin moderation refusal), `flutter analyze` clean, APK built.
+- **Live E2E with a real admin JWT**: queue = all three reports (incl. IT & Network
+  "ss" — read-all); `pending -> under_review -> closed` → 200 (D3); `closed -> *`
+  → **403** (D6); soft-delete → 200 with status preserved; admin reads the deleted row;
+  student claims-sim `report_visible_to_caller` = **false** (hidden from students);
+  restore → 200, `deleted_at` cleared, status preserved. All artifacts and the test
+  user removed (baseline: 1 report, 0 notifications, 0 assignments).
+
+### 21.3 Status
+
+Next: 2.8 Notifications inbox polish + unread badge (client consumption of the
+server-generated rows), 2.9 analytics RPCs (D6), 2.10 security/test audit.

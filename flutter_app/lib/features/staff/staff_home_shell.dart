@@ -10,10 +10,10 @@ import 'data/staff_reports_repository.dart';
 import 'staff_queue_controller.dart';
 import 'staff_queue_screen.dart';
 
-/// Staff dashboard shell. Panel selection follows `profiles.role`; the HOD,
-/// technician and operations panels (Phases 2.4–2.6) render the D1-scoped
-/// routed queue through [StaffQueueScreen]; admin shows a placeholder until
-/// its phase ships.
+/// Staff dashboard shell. Panel selection follows `profiles.role`; all four
+/// staff panels (Phases 2.4–2.7) render the routed (admin: read-all) queue
+/// through [StaffQueueScreen]; role-specific actions live on the detail
+/// screen (assignment/reopen for operations, close/moderation for admin).
 class StaffHomeShell extends StatefulWidget {
   const StaffHomeShell({super.key, required this.controller, required this.role});
 
@@ -77,7 +77,8 @@ body: IndexedStack(
         children: [
           if (widget.role == 'hod' ||
               widget.role == 'technician' ||
-              widget.role == 'operations')
+              widget.role == 'operations' ||
+              widget.role == 'admin')
             StaffQueueScreen(controller: _queueController)
           else
             _PanelComingSoon(role: widget.role),

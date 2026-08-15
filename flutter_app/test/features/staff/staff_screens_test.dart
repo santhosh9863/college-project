@@ -17,6 +17,7 @@ Report _report({
   String id = 'r-1',
   String title = 'Broken projector',
   ReportStatus status = ReportStatus.pending,
+  DateTime? deletedAt,
 }) =>
     Report(
       id: id,
@@ -33,6 +34,7 @@ Report _report({
       isSupported: false,
       createdAt: DateTime(2026, 8, 15),
       updatedAt: DateTime(2026, 8, 15),
+      deletedAt: deletedAt,
     );
 
 class _FakeStaffReportsRepository extends StaffReportsRepository {
@@ -305,6 +307,50 @@ void main() {
       expect(find.text('Reopen review'), findsNothing);
       expect(find.text('Reopen work'), findsNothing);
       expect(find.text('Assign'), findsOneWidget);
+    });
+
+    testWidgets('admin sees the close action and the moderation card',
+        (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'admin',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Close report'), findsOneWidget);
+      expect(find.text('Moderation'), findsOneWidget);
+      expect(find.text('Delete'), findsOneWidget);
+    });
+
+    testWidgets('admin can restore a soft-deleted report', (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(
+          detail: ReportDetail(
+            report: _report(deletedAt: DateTime(2026, 8, 15)),
+            comments: const [],
+            evidence: const [],
+            activity: const [],
+            activeAssigneeId: null,
+          ),
+        ),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'admin',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Restore'), findsOneWidget);
+      expect(find.text('Delete'), findsNothing);
+      expect(find.text('Start review'), findsNothing);
+      expect(find.text('This report is hidden from students.'), findsOneWidget);
     });
   });
 }

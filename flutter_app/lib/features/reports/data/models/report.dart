@@ -20,6 +20,7 @@ class Report {
     required this.supportCount,
     required this.createdAt,
     this.updatedAt,
+    this.deletedAt,
     this.isMine = false,
     this.isSupported = false,
   });
@@ -46,6 +47,7 @@ class Report {
           DateTime.fromMillisecondsSinceEpoch(0),
       updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
       isMine: (json['reporter_id'] as String?) == currentUserId,
+      deletedAt: DateTime.tryParse(json['deleted_at'] as String? ?? ''),
     );
   }
 
@@ -67,6 +69,11 @@ class Report {
   final int supportCount;
   final DateTime createdAt;
   final DateTime? updatedAt;
+
+  /// Soft-delete marker (`deleted_at`); set by student self-cancel or staff
+  /// moderation, cleared only by admin restore. Never a client-side boundary —
+  /// RLS is the enforcement.
+  final DateTime? deletedAt;
 
   /// Whether the authenticated student is the reporter (display only).
   final bool isMine;
@@ -90,6 +97,7 @@ class Report {
         updatedAt: updatedAt,
         isMine: isMine,
         isSupported: isSupported ?? this.isSupported,
+        deletedAt: deletedAt,
       );
 
   /// Parses the embedded `report_supports(count)` aggregate.

@@ -60,7 +60,17 @@ class StaffDetailController extends ChangeNotifier {
   /// Whether the caller's role may reopen (D4/D5: O/A only).
   bool get canReopen => canManageAssignments;
 
+  /// Whether the caller's role may moderate: soft-delete on visible reports
+  /// and restore (admin only) — the admin panel surfaces both.
+  bool get canModerate => _role == 'admin';
+
+  /// Whether the caller's role may close reports directly (D3: admin only).
+  bool get canClose => _role == 'admin';
+
   bool get isAssigned => _detail?.activeAssigneeId != null;
+
+  /// Whether the report is soft-deleted (moderation/self-cancel marker).
+  bool get isDeleted => _detail?.report.deletedAt != null;
 
   /// Assignee display name resolved from the staff directory, when loaded.
   String? get assigneeName {
@@ -77,8 +87,11 @@ class StaffDetailController extends ChangeNotifier {
 
   /// The status transitions the caller may offer, per the approved lifecycle
   /// matrix. `in_progress` requires an active assignment (D8); reopen targets
-  /// follow D4/D5 (ops/admin only, new assignment required for in_progress).
+  /// follow D4/D5 (ops/admin only, new assignment required for in_progress);
+  /// `closed` is admin-only (D3) and terminal (D6). A soft-deleted report
+  /// offers no status actions — only restore (admin).
   List<ReportStatus> get availableTransitions {
+    if (isDeleted) return const [];
     final current = _detail?.report.status;
     final assigned = isAssigned;
     switch (current) {
@@ -87,14 +100,20 @@ class StaffDetailController extends ChangeNotifier {
           ReportStatus.underReview,
           if (assigned) ReportStatus.inProgress,
           ReportStatus.rejected,
+          if (canClose) ReportStatus.closed,
         ];
       case ReportStatus.underReview:
         return [
           if (assigned) ReportStatus.inProgress,
           ReportStatus.rejected,
+          if (canClose) ReportStatus.closed,
         ];
       case ReportStatus.inProgress:
-        return [ReportStatus.resolved, ReportStatus.rejected];
+        return [
+          ReportStatus.resolved,
+          ReportStatus.rejected,
+          if (canClose) ReportStatus.closed,
+        ];
       case ReportStatus.resolved:
       case ReportStatus.rejected:
         // Reopen (D4/D5): ops/admin only AND a new active assignment is
@@ -190,6 +209,27 @@ class StaffDetailController extends ChangeNotifier {
     notifyListeners();
     try {
       final accepted = await _staffRepository.unassign(reportId: _reportId);
+      if (accepted) {
+        await load();
+      }
+      return accepted;
+    } finally {
+      _assignmentInFlight = false;
+      notifyListeners();
+    }
+  }
+
+  /// Soft-deletes or restores the report (admin moderation surface; the
+  /// database gates per role) and reloads.
+  Future<bool> moderate({required bool restore}) async {
+    if (_assignmentInFlight || !canModerate) return false;
+    _assignmentInFlight = true;
+    notifyListeners();
+    try {
+      final accepted = await _staffRepository.moderate(
+        reportId: _reportId,
+        restore: restore,
+      );
       if (accepted) {
         await load();
       }
