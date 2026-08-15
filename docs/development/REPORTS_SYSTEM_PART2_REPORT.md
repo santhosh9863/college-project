@@ -284,3 +284,41 @@ release builds keep the generic message.
 - All repro artifacts removed from the linked project (test users, probe reports, storage test objects —
   via `storage.allow_delete_query` for the trigger-protected orphan, the repro community, diagnostic
   tables); the 14 seeded categories and the original seeded communities are untouched.
+
+---
+
+## 18. Phase 2.4 — HOD panel (2026-08-15)
+
+Panel-system prerequisites (Phase 2.2) are committed (`92a7228`): `category_routes` seeded (16 rows) and
+`report_visible_to_staff` + notification recipients department-scoped (D1), verified live with claims-based
+simulation and a real-role matrix check; a latent trigger bug (`setof uuid` helper + `s.id` reference) was
+caught by the simulation and fixed in `20260815122000_fix_routed_staff_helper.sql`.
+
+### 18.1 Delivered (Flutter, role-branched shell)
+
+- `HomeShell` now branches on `profiles.role`; non-students get `StaffHomeShell` (Queue / Notifications /
+  Profile). HOD panel implemented; technician/operations/admin show a "later phase" placeholder.
+- New `features/staff/`: `StaffReportsRepository` (D1-scoped queue read via RLS + `updateStatus` PATCH),
+  `HodQueueController` (status/search filters), `HodDetailController` (lifecycle actions), `HodQueueScreen`,
+  `HodDetailScreen` (bottom action bar: Start review / Mark in progress (only with active assignment) /
+  Mark resolved / Reject with optional reason comment), `StaffHomeShell`.
+- Shared detail widgets extracted to `features/reports/widgets/report_detail_widgets.dart` (header, section,
+  activity, evidence, comment, badges, error body) — reused by both student and staff detail screens; the
+  student screen keeps its support card and own-pending cancel, unchanged behavior.
+- No client-side permission logic: the app only renders actions the HOD may legally take; the database
+  (`can_transition_status`, D8) is the authority and server rejection is surfaced.
+
+### 18.2 Verification
+
+- **197/197 tests passing** (26 new: staff repository HTTP-mocked, queue controller, detail controller with
+  shared fake server state exercising the reload path, screen widgets), `flutter analyze` clean, APK built.
+- **Live E2E with a real HOD JWT** (admin-created auth user + profile in the General department, Academic
+  probe report): queue returns exactly the department-routed report; `pending -> under_review` → **200**;
+  `under_review -> resolved` → **403** (D2); `under_review -> in_progress` → **403** (D8, no assignment);
+  backwards `-> pending` → **403** (matrix). All probe artifacts removed afterwards.
+
+### 18.3 Migration/status
+
+- 30/30 migrations recorded, Local = Remote (committed `92a7228`; this phase is client-only).
+- Next: Phase 2.5 Technician panel, 2.6 Operations panel (assignment), 2.7 Admin, 2.8 Notifications inbox
+  polish, 2.9 analytics RPCs (D6), 2.10 security/test audit.

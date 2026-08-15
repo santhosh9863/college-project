@@ -17,6 +17,7 @@ import '../reports/data/categories_repository.dart';
 import '../reports/data/reports_repository.dart';
 import '../reports/reports_controller.dart';
 import '../reports/reports_screen.dart';
+import '../staff/staff_home_shell.dart';
 
 /// Authenticated dashboard shell: Home (name, community, attendance),
 /// Reports, Notifications and Profile destinations.
@@ -82,6 +83,14 @@ class _HomeShellState extends State<HomeShell> {
 
   @override
   Widget build(BuildContext context) {
+    final role = widget.controller.profile?.role;
+    if (role != null && role != 'student') {
+      return StaffHomeShell(controller: widget.controller, role: role);
+    }
+    return _buildStudentShell(context);
+  }
+
+  Widget _buildStudentShell(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text(
