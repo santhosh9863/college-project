@@ -7,6 +7,7 @@ import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
 import '../reports/data/reports_repository.dart';
 import 'data/staff_reports_repository.dart';
+import 'staff_detail_screen.dart';
 import 'staff_queue_controller.dart';
 import 'staff_queue_screen.dart';
 
@@ -52,6 +53,17 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
     super.dispose();
   }
 
+  Future<void> _openNotificationReport(String reportId) async {
+    final detailController = _queueController.detailControllerFor(reportId);
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => StaffDetailScreen(controller: detailController),
+      ),
+    );
+    detailController.dispose();
+    _queueController.load();
+  }
+
   String get _panelTitle => switch (widget.role) {
         'hod' => 'Department reports',
         'technician' => 'Technician panel',
@@ -82,7 +94,10 @@ body: IndexedStack(
             StaffQueueScreen(controller: _queueController)
           else
             _PanelComingSoon(role: widget.role),
-          NotificationsScreen(controller: _notificationsController),
+          NotificationsScreen(
+            controller: _notificationsController,
+            onOpen: _openNotificationReport,
+          ),
           ProfileScreen(controller: widget.controller),
         ],
       ),
@@ -92,7 +107,10 @@ body: IndexedStack(
           final unread = _notificationsController.unreadCount;
           return NavigationBar(
             selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+            onDestinationSelected: (index) {
+              setState(() => _selectedIndex = index);
+              if (index == 1) _notificationsController.load();
+            },
             destinations: [
               NavigationDestination(
                 icon: const Icon(Icons.receipt_long_outlined),

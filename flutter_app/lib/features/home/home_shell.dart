@@ -15,6 +15,7 @@ import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
 import '../reports/data/categories_repository.dart';
 import '../reports/data/reports_repository.dart';
+import '../reports/report_detail_screen.dart';
 import '../reports/reports_controller.dart';
 import '../reports/reports_screen.dart';
 import '../staff/staff_home_shell.dart';
@@ -81,6 +82,17 @@ class _HomeShellState extends State<HomeShell> {
     }
   }
 
+  Future<void> _openNotificationReport(String reportId) async {
+    await Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => ReportDetailScreen(
+          controller: _reportsController.detailControllerFor(reportId),
+        ),
+      ),
+    );
+    _reportsController.load();
+  }
+
   @override
   Widget build(BuildContext context) {
     final role = widget.controller.profile?.role;
@@ -117,7 +129,10 @@ class _HomeShellState extends State<HomeShell> {
             profile: widget.controller.profile,
             community: widget.controller.community,
           ),
-          NotificationsScreen(controller: _notificationsController),
+          NotificationsScreen(
+            controller: _notificationsController,
+            onOpen: _openNotificationReport,
+          ),
           ProfileScreen(controller: widget.controller),
         ],
       ),
@@ -127,7 +142,10 @@ class _HomeShellState extends State<HomeShell> {
           final unread = _notificationsController.unreadCount;
           return NavigationBar(
             selectedIndex: _selectedIndex,
-            onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+            onDestinationSelected: (index) {
+              setState(() => _selectedIndex = index);
+              if (index == 2) _notificationsController.load();
+            },
             destinations: [
               const NavigationDestination(
                 icon: Icon(Icons.home_outlined),

@@ -441,3 +441,36 @@ notifications inbox polish, 2.9 analytics RPCs (D6), 2.10 security/test audit.
 
 Next: 2.8 Notifications inbox polish + unread badge (client consumption of the
 server-generated rows), 2.9 analytics RPCs (D6), 2.10 security/test audit.
+
+---
+
+## 22. Phase 2.8 — Notifications inbox polish + unread badge (2026-08-15)
+
+### 22.1 Delivered (client-only; 31/31 migrations unchanged)
+
+- **Tap-through**: `NotificationsScreen` gained an `onOpen(referenceId)` callback —
+  tapping a notification marks it read and opens the referenced report through the
+  shell's own detail flow (student → `ReportDetailScreen`, staff → `StaffDetailScreen`;
+  both shells dispose the pushed controller and reload on return).
+- **Badge freshness**: both shells reload the notifications controller when the
+  Notifications destination is selected (in addition to the initial load and the
+  existing pull-to-refresh), so the unread badge stays current as server-generated
+  rows arrive during a session.
+- **Type icons**: tiles now lead with a per-type icon (report_new / assignment /
+  status_change / report_deleted / report_restored) and keep a trailing unread dot +
+  tinted card for unread emphasis.
+
+### 22.2 Verification
+
+- **228/228 tests passing** (10 new: controller read/mark-read/mark-all/error paths,
+  screen rendering, tap-to-open with and without a reference, mark-all clears the
+  badge, empty state), `flutter analyze` clean, APK built.
+- **Live check of the exact client query shapes** with a real student JWT: the
+  `fetchRecent` select/order/limit URL returns the seeded rows; the mark-read PATCH
+  returns 204 and unread falls to 0. (Notification *generation* was already verified
+  per-role in Phases 2.4–2.7.) Artifacts and the test user removed afterwards.
+
+### 22.3 Status
+
+Next: 2.9 Analytics (view-gated aggregate RPCs, D6) + dashboard screens, 2.10
+security/RLS/test audit.

@@ -5,10 +5,23 @@ import 'data/app_notification.dart';
 import 'notifications_controller.dart';
 
 /// Notifications tab: own notifications (RLS-scoped), tap to mark read.
+/// When [onOpen] is provided, tapping a notification with a `reference_id`
+/// also opens the referenced report through the shell's detail flow.
 class NotificationsScreen extends StatelessWidget {
-  const NotificationsScreen({super.key, required this.controller});
+  const NotificationsScreen({super.key, required this.controller, this.onOpen});
 
   final NotificationsController controller;
+
+  /// Invoked with the notification's `reference_id` after marking it read.
+  final void Function(String referenceId)? onOpen;
+
+  void _handleTap(AppNotification notification) {
+    controller.markRead(notification.id);
+    final referenceId = notification.referenceId;
+    if (referenceId != null && referenceId.isNotEmpty) {
+      onOpen?.call(referenceId);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,7 +59,7 @@ class NotificationsScreen extends StatelessWidget {
                               final notification = controller.notifications[index];
                               return _NotificationTile(
                                 notification: notification,
-                                onTap: () => controller.markRead(notification.id),
+                                onTap: () => _handleTap(notification),
                               );
                             },
                           ),
@@ -76,9 +89,10 @@ class _NotificationTile extends StatelessWidget {
       color: unread ? theme.colorScheme.primaryContainer.withValues(alpha: 0.35) : null,
       child: ListTile(
         onTap: onTap,
-        leading: unread
-            ? Icon(Icons.circle, size: 12, color: theme.colorScheme.primary)
-            : const Icon(Icons.notifications_none),
+        leading: Icon(
+          _iconFor(notification.type),
+          color: unread ? theme.colorScheme.primary : theme.colorScheme.outline,
+        ),
         title: Text(
           notification.title,
           style: theme.textTheme.titleSmall?.copyWith(
@@ -108,9 +122,20 @@ class _NotificationTile extends StatelessWidget {
             ),
           ],
         ),
+        trailing: unread
+            ? Icon(Icons.circle, size: 10, color: theme.colorScheme.primary)
+            : null,
       ),
     );
   }
+
+  static IconData _iconFor(String type) => switch (type) {
+        'report_new' => Icons.fiber_new_outlined,
+        'assignment' => Icons.person_add_alt_1_outlined,
+        'report_deleted' => Icons.delete_outline,
+        'report_restored' => Icons.restore_outlined,
+        _ => Icons.update_outlined,
+      };
 }
 
 class _EmptyBody extends StatelessWidget {
