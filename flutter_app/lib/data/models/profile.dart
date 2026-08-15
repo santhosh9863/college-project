@@ -10,6 +10,7 @@ class Profile {
     this.semester,
     this.section,
     required this.studentId,
+    this.departmentId,
   });
 
   final String id;
@@ -20,6 +21,10 @@ class Profile {
   final String? section;
   final String studentId;
 
+  /// Server-assigned department (set at login since the departments seed).
+  /// Snapshot for reports.department_id (NOT NULL).
+  final String? departmentId;
+
   factory Profile.fromJson(Map<String, dynamic> json) {
     return Profile(
       id: json['id'] is String ? json['id'] as String : '',
@@ -29,6 +34,8 @@ class Profile {
       semester: json['semester'] is int ? json['semester'] as int : null,
       section: json['section'] is String ? json['section'] as String : null,
       studentId: json['student_id'] is String ? json['student_id'] as String : '',
+      departmentId:
+          json['department_id'] is String ? json['department_id'] as String : null,
     );
   }
 

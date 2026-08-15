@@ -13,6 +13,7 @@ import '../notifications/data/notifications_repository.dart';
 import '../notifications/notifications_controller.dart';
 import '../notifications/notifications_screen.dart';
 import '../profile/profile_screen.dart';
+import '../reports/data/categories_repository.dart';
 import '../reports/data/reports_repository.dart';
 import '../reports/reports_controller.dart';
 import '../reports/reports_screen.dart';
@@ -43,7 +44,10 @@ class _HomeShellState extends State<HomeShell> {
       repository: LinwaysAttendanceRepository(),
     );
     _reportsController = ReportsController(
-      repository: ReportsRepository(),
+      repository: ReportsRepository(
+        currentUserId: widget.controller.currentUser?.id ?? '',
+      ),
+      categoriesRepository: CategoriesRepository(),
     );
     _notificationsController = NotificationsController(
       repository: NotificationsRepository(),
@@ -99,36 +103,54 @@ class _HomeShellState extends State<HomeShell> {
             onAttendanceReSignIn: widget.controller.logout,
             onImportScreenshot: _openImportFlow,
           ),
-          ReportsScreen(controller: _reportsController),
+          ReportsScreen(
+            controller: _reportsController,
+            profile: widget.controller.profile,
+            community: widget.controller.community,
+          ),
           NotificationsScreen(controller: _notificationsController),
           ProfileScreen(controller: widget.controller),
         ],
       ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) => setState(() => _selectedIndex = index),
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home),
-            label: 'Home',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.receipt_long_outlined),
-            selectedIcon: Icon(Icons.receipt_long),
-            label: 'Reports',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.notifications_outlined),
-            selectedIcon: Icon(Icons.notifications),
-            label: 'Notifications',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.person_outline),
-            selectedIcon: Icon(Icons.person),
-            label: 'Profile',
-          ),
-        ],
+      bottomNavigationBar: AnimatedBuilder(
+        animation: _notificationsController,
+        builder: (context, _) {
+          final unread = _notificationsController.unreadCount;
+          return NavigationBar(
+            selectedIndex: _selectedIndex,
+            onDestinationSelected: (index) => setState(() => _selectedIndex = index),
+            destinations: [
+              const NavigationDestination(
+                icon: Icon(Icons.home_outlined),
+                selectedIcon: Icon(Icons.home),
+                label: 'Home',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.receipt_long_outlined),
+                selectedIcon: Icon(Icons.receipt_long),
+                label: 'Reports',
+              ),
+              NavigationDestination(
+                icon: Badge.count(
+                  count: unread,
+                  isLabelVisible: unread > 0,
+                  child: const Icon(Icons.notifications_outlined),
+                ),
+                selectedIcon: Badge.count(
+                  count: unread,
+                  isLabelVisible: unread > 0,
+                  child: const Icon(Icons.notifications),
+                ),
+                label: 'Notifications',
+              ),
+              const NavigationDestination(
+                icon: Icon(Icons.person_outline),
+                selectedIcon: Icon(Icons.person),
+                label: 'Profile',
+              ),
+            ],
+          );
+        },
       ),
     );
   }

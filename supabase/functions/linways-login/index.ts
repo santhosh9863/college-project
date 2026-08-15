@@ -352,12 +352,36 @@ async function findOrCreateAuthUser(
   throw new Error("auth user provisioning failed");
 }
 
+// Department resolution: departments.code = course prefix (e.g. BCA), with a
+// seeded GENERAL fallback so reports.department_id (NOT NULL) can always be
+// satisfied. Admin can add departments anytime without code changes.
+async function resolveDepartmentId(
+  db: SupabaseClient,
+  courseCode: string | null,
+): Promise<string | null> {
+  if (courseCode) {
+    const { data: exact } = await db
+      .from("departments")
+      .select("id")
+      .eq("code", courseCode)
+      .maybeSingle();
+    if (exact?.id) return exact.id as string;
+  }
+  const { data: general } = await db
+    .from("departments")
+    .select("id")
+    .eq("code", "GENERAL")
+    .maybeSingle();
+  return (general?.id as string | undefined) ?? null;
+}
+
 async function upsertProfile(
   db: SupabaseClient,
   userId: string,
   profile: LinwaysProfile,
   community: DerivedCommunity | null,
   email: string,
+  departmentId: string | null,
 ): Promise<void> {
   const semesterRaw = normalizeSemester(profile.currentSem);
   const { error } = await db.from("profiles").upsert(
@@ -366,6 +390,7 @@ async function upsertProfile(
       email,
       full_name: profile.name,
       role: "student",
+      department_id: departmentId,
       semester: semesterRaw ? Number(semesterRaw.slice(1)) : null,
       section: community ? community.section : null,
       student_id: profile.registerNo,
@@ -570,7 +595,11 @@ Deno.serve(async (req) => {
     const { userId, email } = await findOrCreateAuthUser(serviceDb, profile);
 
     // --- 5. Upsert profile -----------------------------------------------------
-    await upsertProfile(serviceDb, userId, profile, community, email);
+    const departmentId = await resolveDepartmentId(
+      serviceDb,
+      community ? community.course_code : null,
+    );
+    await upsertProfile(serviceDb, userId, profile, community, email, departmentId);
 
     // --- 6. Get-or-create community + activate membership ----------------------
     let communityRecord: DerivedCommunity | null = null;
@@ -595,6 +624,7 @@ Deno.serve(async (req) => {
           full_name: profile.name,
           email,
           role: "student",
+          department_id: departmentId,
           semester: normalizeSemester(profile.currentSem)
             ? Number(normalizeSemester(profile.currentSem)?.slice(1))
             : null,
