@@ -1,3 +1,4 @@
+﻿import 'package:college_project_app/data/models/profile.dart';
 import 'package:college_project_app/features/reports/create_report_controller.dart';
 import 'package:college_project_app/features/reports/create_report_screen.dart';
 import 'package:college_project_app/features/reports/data/categories_repository.dart';
@@ -56,11 +57,12 @@ class _FakeCategoriesRepository extends CategoriesRepository {
 }
 
 class _FakeReportsRepository extends ReportsRepository {
-  _FakeReportsRepository({this.feed = const [], this.mineDetail = false})
+  _FakeReportsRepository({this.feed = const [], this.mineDetail = false, this.failCreate = false})
       : super(client: _testClient(), currentUserId: 'user-a');
 
   final List<Report> feed;
   final bool mineDetail;
+  final bool failCreate;
 
   @override
   Future<List<Report>> fetchFeed({
@@ -86,8 +88,10 @@ class _FakeReportsRepository extends ReportsRepository {
     required String communityId,
     int? semester,
     String? section,
-  }) async =>
-      'r-new';
+  }) async {
+    if (failCreate) throw Exception('create failed');
+    return 'r-new';
+  }
 
   @override
   Future<ReportDetail> fetchDetail(String reportId) async => ReportDetail(
@@ -188,6 +192,22 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('No reports yet from your community.'), findsOneWidget);
     });
+
+    testWidgets('filter bar does not overflow on narrow screens',
+        (tester) async {
+      await tester.binding.setSurfaceSize(const Size(320, 600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final controller = ReportsController(
+        repository: _FakeReportsRepository(feed: [_report()]),
+        categoriesRepository: _FakeCategoriesRepository(),
+      );
+      await tester.pumpWidget(wrap(ReportsScreen(controller: controller)));
+      await tester.pumpAndSettle();
+
+      expect(find.text('My reports'), findsOneWidget);
+      expect(find.text('Category'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
   });
 
   group('CreateReportScreen', () {
@@ -216,7 +236,8 @@ void main() {
       expect(find.text('Add a short title.'), findsOneWidget);
     });
 
-    testWidgets('renders category options from the repository', (tester) async {
+    testWidgets('opens the category sheet and marks the chosen category',
+        (tester) async {
       final controller = CreateReportController(
         repository: _FakeReportsRepository(),
         categoriesRepository: _FakeCategoriesRepository(),
@@ -224,11 +245,91 @@ void main() {
       await tester.pumpWidget(wrap(CreateReportScreen(controller: controller)));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Category'));
+      await tester.tap(find.text('Choose a category').first);
       await tester.pumpAndSettle();
 
       expect(find.text('Academic'), findsOneWidget);
       expect(find.text('Facilities'), findsOneWidget);
+
+      await tester.tap(find.text('Academic'));
+      await tester.pumpAndSettle();
+
+      expect(controller.categoryId, 'cat-1');
+      expect(find.text('Academic'), findsOneWidget);
+      expect(find.byIcon(Icons.check), findsNothing);
+    });
+
+    testWidgets('renders all priority options without wrapping', (tester) async {
+      final controller = CreateReportController(
+        repository: _FakeReportsRepository(),
+        categoriesRepository: _FakeCategoriesRepository(),
+      );
+      await tester.pumpWidget(wrap(CreateReportScreen(controller: controller)));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('Critical'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+
+      expect(find.text('Low'), findsOneWidget);
+      expect(find.text('Medium'), findsOneWidget);
+      expect(find.text('High'), findsOneWidget);
+      expect(find.text('Critical'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('surfaces the underlying submit failure in the error card',
+        (tester) async {
+      final controller = CreateReportController(
+        repository: _FakeReportsRepository(failCreate: true),
+        categoriesRepository: _FakeCategoriesRepository(),
+        profile: const Profile(
+          id: 'user-a',
+          fullName: 'Test Student',
+          email: 'student@college.example',
+          role: 'student',
+          semester: 5,
+          section: 'C',
+          studentId: 'S-2024-001',
+          departmentId: 'dept-1',
+        ),
+      );
+      await tester.pumpWidget(wrap(CreateReportScreen(controller: controller)));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(TextField).first, 'Broken projector');
+      await tester.enterText(find.byType(TextField).at(1), 'Room 12.');
+      await tester.tap(find.text('Choose a category').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Academic'));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.text('Medium'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Medium'));
+      await tester.pumpAndSettle();
+
+      await tester.scrollUntilVisible(
+        find.text('Submit report'),
+        300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.tap(find.text('Submit report'));
+      await tester.pumpAndSettle();
+
+      expect(controller.lastSubmitError, isA<Exception>());
+      expect(controller.error, contains('Details (debug)'));
+      await tester.scrollUntilVisible(
+        find.textContaining('Details (debug)'),
+        -300,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.textContaining('Details (debug)'), findsOneWidget);
+      expect(find.textContaining('create failed'), findsOneWidget);
     });
   });
 
@@ -266,3 +367,6 @@ void main() {
     });
   });
 }
+
+
+

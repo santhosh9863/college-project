@@ -51,6 +51,7 @@ class CreateReportController extends ChangeNotifier {
   final List<EvidenceDraft> _evidence = [];
   bool _submitting = false;
   String? _error;
+  Object? _lastSubmitError;
   bool _categoriesFailed = false;
   List<ReportCategory> _categories = const [];
 
@@ -61,6 +62,11 @@ class CreateReportController extends ChangeNotifier {
   List<EvidenceDraft> get evidence => List.unmodifiable(_evidence);
   bool get submitting => _submitting;
   String? get error => _error;
+
+  /// Underlying failure of the last submit attempt. Debug builds surface
+  /// its message in the UI; release builds always show the friendly text.
+  Object? get lastSubmitError => _lastSubmitError;
+
   bool get categoriesFailed => _categoriesFailed;
   List<ReportCategory> get categories => _categories;
 
@@ -112,6 +118,7 @@ class CreateReportController extends ChangeNotifier {
     if (!canSubmit) return null;
     _submitting = true;
     _error = null;
+    _lastSubmitError = null;
     notifyListeners();
     try {
       final communityId = await _repository.fetchMyCommunityId();
@@ -146,7 +153,11 @@ class CreateReportController extends ChangeNotifier {
       }
       return reportId;
     } catch (error) {
-      _error = 'Could not create the report. Please try again.';
+      _lastSubmitError = error;
+      debugPrint('CreateReportController: report creation failed: $error');
+      _error = kDebugMode
+          ? 'Could not create the report. Details (debug): $error'
+          : 'Could not create the report. Please try again.';
       return null;
     } finally {
       _submitting = false;

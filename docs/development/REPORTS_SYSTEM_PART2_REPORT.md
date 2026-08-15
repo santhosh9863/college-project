@@ -1,8 +1,10 @@
 # Part 2 Final Report — Community Reports System (Student-Facing)
 
 **Date:** 2026-08-15 · **Scope:** "college project" Flutter app (`flutter_app`) + Supabase (`supabase/`)
-**Status:** ✅ Implemented in 4 approved parts (2-A backend → 2-B data layer → 2-C UI → 2-D validation).
-`flutter analyze` clean, **168/168 tests passing** (93 Part 1 + 75 new), `flutter build apk --debug` successful.
+**Status:** ✅ Implemented in 4 approved parts (2-A backend → 2-B data layer → 2-C UI → 2-D validation)
+**plus a post-review fix round (§17)** — the report-creation and evidence-upload bugs found in live
+verification are root-caused, fixed (5 new migrations) and verified end-to-end with a real student JWT.
+`flutter analyze` clean, **171/171 tests passing** (93 Part 1 + 78 new), `flutter build apk --debug` successful.
 
 ---
 
@@ -44,7 +46,7 @@ NOT NULL, so create-report is blocked with a clear message until then).
 
 All verified against the linked project `bvxuvkpmpufsbxvpdkht` after `supabase db push --linked`:
 
-- All **22 migrations** recorded remotely (Local = Remote for each).
+- All **27 migrations** recorded remotely (Local = Remote for each; 22 original + 5 fix-round, §17).
 - `priority` enum includes `critical`; **14 categories** present; department `GENERAL` present.
 - Bucket `evidence`: **private**, 20,971,520 bytes, image+PDF MIME allow-list; 3 storage policies live.
 - `linways-login` Edge Function deployed (ACTIVE, v2).
@@ -84,7 +86,9 @@ All under `flutter_app/lib/features/reports/data/models/`:
   own-pending `cancelReport`, `uploadEvidence`, `signedUrlFor`.
 - **`CreateReportController`** — form validation (`validationMessage`/`canSubmit`), evidence drafts (max 5),
   submit pipeline: `fetchMyCommunityId()` → `profile.departmentId` → create → upload evidence; clear errors
-  for "community not assigned" / "missing department".
+  for "community not assigned" / "missing department". Failures are logged with `debugPrint`, kept on
+  `lastSubmitError` (testable), and surfaced verbatim in debug builds (generic message in release) — the
+  post-review fix that made the real cause of creation failures visible.
 
 ## 8. UI — Reports home (Part 2-C)
 
@@ -92,14 +96,17 @@ All under `flutter_app/lib/features/reports/data/models/`:
 "My reports" filter chip, "Clear filters" when active, distinct empty states (no reports vs no matches),
 pull-to-refresh, `New report` FAB, report tiles with priority icon, status badge, description preview,
 support count and generic author label ("You" / "Community member"). Returning from create/detail reloads
-the feed.
+the feed. The category + "My reports" row is **responsive** (post-review fix): below 520 px the field and
+chip stack vertically instead of overflowing, and the dropdown sizes intrinsically on narrow screens.
 
 ## 9. UI — Create report (Part 2-C)
 
-`create_report_screen.dart` (new): title (200), description (2000), category dropdown fed by the
-repository, 4-way priority `SegmentedButton`, photo evidence via `image_picker` (up to 5, thumbnails with
-remove, MIME-gated), inline first-error hints after a submit attempt, friendly error banner, submit button
-with busy state. Identity fields are never inputs.
+`create_report_screen.dart` (new): title (200), description (2000), category picker opening a
+**scrollable bottom sheet** with the selected category marked (post-review fix, replaces the dropdown),
+4-way priority `SegmentedButton` inside a horizontal scroll view so labels never wrap on narrow screens
+(post-review fix), photo evidence via `image_picker` (up to 5, thumbnails with remove, MIME-gated), inline
+first-error hints after a submit attempt, friendly error banner, submit button with busy state. Identity
+fields are never inputs.
 
 ## 10. UI — Report detail (Part 2-C)
 
@@ -132,20 +139,23 @@ PostgREST/storage API surface, and the reviewed policy source:
 
 | Check | Result |
 |---|---|
-| Migration state (`supabase migration list --linked`) | 22/22 applied, Local = Remote |
+| Migration state (`supabase migration list --linked`) | 27/27 applied, Local = Remote |
 | `GET /rest/v1/{reports,report_comments,report_supports,evidence_files,report_activity,report_assignments,categories,profiles,communities,notifications}` with **anon** key | **401** on all 10 |
 | `GET /storage/v1/bucket/evidence` with anon key | **404 NoSuchBucket** (bucket hidden from anonymous) |
 | `GET /storage/v1/object/info/evidence/...` with anon key | **404** (objects not enumerable) |
 | `linways-login` function | ACTIVE v2 (deployed) |
 | Policy logic (`20260811103300_rls_security.sql` reviewed) | students: own-community + own-history reads, own pending-only updates, own-community support with open-status + not-own-report checks, own comments delete; anon: no table privileges; server-generated tables: no client writes |
-| Storage policies (from `20260815102000_evidence_storage.sql`) | select = visible report, insert = own report, delete = admin |
+| Storage policies (from `20260815102000_evidence_storage.sql` as fixed in §17) | select = visible report, insert = own report (path + owner + report checks), delete = admin |
 
-Policy *simulation* as an `authenticated` role (e.g. cross-community reads, supporting own report) requires a
-DB session and is listed as pending in §16.
+Policy behavior was exercised **as an `authenticated` session** through the Management API SQL endpoint
+(claims set, `my_role()`/`auth.uid()` live): create-report gate, the `INSERT … RETURNING` visibility
+failure, the storage `exists(...)` check, and the full create→upload→evidence→sign→activity flow (§17).
+The anon surface stays 401/404.
 
 ## 14. Test summary
 
-75 new tests under `flutter_app/test/features/reports/` (+93 Part 1, all passing):
+78 new tests under `flutter_app/test/features/reports/` (+93 Part 1, all passing; +3 over the 2-D baseline
+from the fix round):
 
 - `report_models_test.dart` — enum parsing (incl. `critical`), Report/`ReportDetail` parsing, support-count
   embed, `copyWith`, comment/evidence ownership flags, `displayMessage` mapping, MIME mapping.
@@ -155,9 +165,11 @@ DB session and is listed as pending in §16.
 - `categories_repository_test.dart` — parse + error paths.
 - `reports_controller_test.dart` / `report_detail_controller_test.dart` / `create_report_controller_test.dart`
   — fake-repo controller tests: states, filter propagation, optimistic toggle + revert, comment lifecycle,
-  cancel, community/department gating, validation ordering.
+  cancel, community/department gating, validation ordering, `lastSubmitError`/debug-error surfacing.
 - `reports_screens_test.dart` — widget tests for all three screens (tiles, empty/filtered states, clear
-  filters, validation hints, category options, detail sections, own-report support-card hiding).
+  filters, validation hints, category bottom sheet with selected marking, priority options present at
+  narrow widths, debug error card, detail sections, own-report support-card hiding, no-overflow filter bar
+  at 320 px).
 
 Notable test-infra findings fixed along the way: MockClient responses need `request` attached (postgrest
 dereferences it), `.single()` on POST expects a JSON object (not array), `order` emits `.nullslast`, and
@@ -168,27 +180,107 @@ gotrue's auto-refresh timer must be disabled in widget tests.
 | Check | Command | Result |
 |---|---|---|
 | Static analysis | `flutter analyze` | **No issues found** |
-| Tests | `flutter test` | **168/168 passing** |
-| Debug build | `flutter build apk --debug` | **√ Built `build/app/outputs/flutter-apk/app-debug.apk`** (31 s) |
-| Migrations | `supabase db push --linked` (2-A) | Applied cleanly; the one `alter table storage.objects enable row level security` statement was removed (SQLSTATE 42501 — RLS is already on by default) |
+| Tests | `flutter test` | **171/171 passing** |
+| Debug build | `flutter build apk --debug` | **√ Built `build/app/outputs/flutter-apk/app-debug.apk`** (52 s) |
+| Migrations | `supabase migration list --linked` (fix round) | **27/27 applied**, Local = Remote for each |
 | Edge Function | `supabase functions deploy linways-login` (2-A) | Deployed, ACTIVE v2 |
 | TS syntax | `tsc --noEmit` (2-A) | Only pre-existing Deno/module-type environment errors (no deno binary on host) |
 
 ## 16. Known limitations & pending validation
 
-- **Policy simulation as `authenticated`** (cross-community read attempt, supporting own report, deleting
-  others' comments, cancelling a non-pending report) requires a DB session (psql/Docker) — pending a machine
-  where that is available; the 401/404 surface checks and policy source review are complete.
-- **Real-user e2e**: the flow has not been exercised on a device with a real student login; pending manual
-  pass: login → create report with photos → visible to second test student → support → comment → cancel own
-  pending report → notification badge reflects new events.
+- **Device manual pass**: the flow is verified end-to-end through the live PostgREST/storage API with a real
+  student JWT (§17), but a hand-held manual pass on a device remains pending: login → create report with
+  photos → visible to second test student → support → comment → cancel own pending report → notification
+  badge reflects new events.
 - Students who logged in before the departments seed get `department_id` at their **next login** — the app
   shows a clear "sign out and sign back in" error until then.
 - Evidence viewer is in-app image preview only (no external PDF opener — no `url_launcher` dependency added).
-- `category_routes` seeding (routing staff roles) is deliberately deferred to the Authority Panel phase.
+- `category_routes` seeding (routing staff roles) is deliberately deferred to the Authority Panel phase —
+  until then the server creates the report's activity row but no notification rows.
 - iOS build not verified (Windows host).
 
 **Part 3 readiness:** the activity timeline, notifications and assignment tables are already live and
 RLS-gated; Part 3 (Authority Panel, staff lifecycle actions, AI classification, `category_routes` seeding,
 notification generation) plugs into the existing policies, `report_activity` display and the storage helper
 functions without schema changes.
+
+---
+
+## 17. Fix round (2026-08-15, post-review) — creation & evidence bugs root-caused and fixed
+
+Live verification found and fixed **two independent backend bugs** plus a visibility gap, all reproduced
+with a real student JWT against `bvxuvkpmpufsbxvpdkht` and confirmed after the fix. No applied migration was
+modified; five new migrations were added and pushed (27/27 recorded, Local = Remote).
+
+### 17.1 Root cause 1 — report creation failed with a generic error (RLS `42501`)
+
+**Symptom:** `POST /rest/v1/reports` with the app's payload (`Prefer: return=representation` +
+`select=id` — exactly what `.insert(...).select('id').single()` produces) returned
+`42501 new row violates row-level security policy for table "reports"`.
+
+**Root cause:** the `reports_select_visible` policy used
+`report_visible_to_caller(id)`, which re-reads `public.reports` in a subquery. PostgREST applies the
+SELECT policy to the **returned** row of `INSERT … RETURNING`; the subquery runs in the same statement's
+snapshot and cannot see the just-inserted row, so the policy evaluated to false and the insert was
+rejected. A plain insert without `RETURNING` succeeded — which is why the failure only appeared in the app
+(`.select('id')`).
+
+**Fix — `20260815103000_fix_returning_visibility.sql`:** added
+`public.report_visible_to_caller_row(p_report_id, p_community_id, p_reporter_id, p_deleted_at)` — the
+student branch uses the **row's own columns** (no self-reference); staff/admin branches delegate to
+`report_visible_to_staff` — and redefined `reports_select_visible` as
+`using (public.report_visible_to_caller_row(id, community_id, reporter_id, deleted_at))`.
+
+**Verified live:** the app-shaped insert now returns **201 + the row** (`id`, `status`, `priority`);
+plain inserts unchanged; student detail reads of the created report return 200.
+
+### 17.2 Root cause 2 — evidence uploads rejected with `403 AccessDenied`
+
+**Symptom:** `POST /storage/v1/object/evidence/<reportId>/<ts>_x.png` with the student JWT returned
+`403 new row violates row-level security policy` even though the report existed and the SQL-level check
+of the policy's `exists(...)` was TRUE.
+
+**Root cause (two bugs, found by diagnostic policy + inspecting the stored row):**
+1. **Wrong path parsing** — the storage service stores `storage.objects.name` **without** the bucket
+   prefix (`8b46…/file.png`, not `evidence/8b46…/file.png`). `storage_evidence_report_id` required the
+   `evidence/` prefix, so it resolved to NULL for every real upload. (The stored-object inspection also
+   proved the service **does** set `owner = auth.uid()` — the `owner` clause was never the problem.)
+2. **`storage.buckets` visibility** — the migration created the bucket row directly, but `storage.buckets`
+   has RLS enabled with **no select policy**, so the storage service (evaluating as the user) reported the
+   bucket as missing (`GET /bucket` → `[]`, `/bucket/evidence` → 404) for every authenticated request.
+
+**Fix:**
+- `20260815105000_fix_evidence_path.sql` — `storage_evidence_report_id` now parses the **first folder**
+  (`(storage.foldername(p_name))[1]::uuid`), matching the service's prefix-free names.
+- `20260815106000_fix_storage_bucket_policy.sql` — `select` policy on `storage.buckets` for
+  `authenticated` (object-level access stays fully gated by the `storage.objects` policies; bucket names
+  are not sensitive).
+- `20260815107000_restore_evidence_owner.sql` — restores the `owner = auth.uid()` conjunct that was
+  removed while the path bug masked the real cause (defense-in-depth, owner provenance).
+
+**Verified live (full E2E, student JWT):** create report → upload evidence → **200 + key** →
+`evidence_files` insert → **201** → `createSignedUrl` → **200 with token** → server `report_activity`
+row created → student detail reads of report/evidence/activity → **200**. The final upload also passes
+with the restored `owner` conjunct.
+
+### 17.3 Root cause 3 — the client hid the real failure
+
+**Fix:** `CreateReportController.submit()` now logs the failure with `debugPrint`, keeps it on
+`lastSubmitError`, and debug builds show `Could not create the report. Details (debug): <error>` while
+release builds keep the generic message.
+
+### 17.4 UI polish in the same round
+
+- Category picker → **scrollable bottom sheet** with the chosen category visually marked (check icon +
+  selected tile).
+- Priority `SegmentedButton` wrapped in a horizontal scroll view — labels no longer wrap on narrow screens.
+- Filter bar category + "My reports" row is **responsive** (stacks below 520 px; dropdown sizes
+  intrinsically; overflow regression-tested at 320 px).
+
+### 17.5 Test delta & cleanup
+
+- 3 new tests (net): debug error surfacing (controller + widget), category sheet selection, priority
+  options at narrow widths, no-overflow filter bar at 320 px → **171/171 passing**, analyze clean.
+- All repro artifacts removed from the linked project (test users, probe reports, storage test objects —
+  via `storage.allow_delete_query` for the trigger-protected orphan, the repro community, diagnostic
+  tables); the 14 seeded categories and the original seeded communities are untouched.

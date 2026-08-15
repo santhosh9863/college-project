@@ -238,9 +238,10 @@ void main() {
       expect(controller.error, contains('department'));
     });
 
-    test('submit maps repository failures to a friendly error', () async {
+    test('submit exposes the underlying failure in debug builds', () async {
+      final repo = _FakeReportsRepository(failCreate: true);
       final controller = CreateReportController(
-        repository: _FakeReportsRepository(failCreate: true),
+        repository: repo,
         categoriesRepository: _FakeCategoriesRepository(),
         profile: _profile(),
         community: _community(),
@@ -255,7 +256,11 @@ void main() {
       final id = await controller.submit();
 
       expect(id, isNull);
-      expect(controller.error, contains('try again'));
+      expect(controller.lastSubmitError, isA<Exception>());
+      expect(controller.lastSubmitError.toString(), contains('create failed'));
+      expect(controller.error, contains('Could not create the report'));
+      expect(controller.error, contains('Details (debug)'));
+      expect(controller.error, contains('create failed'));
     });
 
     test('submit is a no-op while invalid or already submitting', () async {
@@ -270,6 +275,7 @@ void main() {
 
       expect(await controller.submit(), isNull); // invalid form
       expect(repo.communityChecked, isFalse);
+      expect(controller.lastSubmitError, isNull);
     });
 
     test('categories failure is reported without blocking the form', () async {

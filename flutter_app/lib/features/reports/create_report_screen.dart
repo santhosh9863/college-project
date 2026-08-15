@@ -5,6 +5,7 @@ import 'package:image_picker/image_picker.dart';
 
 import 'create_report_controller.dart';
 import 'data/evidence_mime.dart';
+import 'data/models/report_category.dart';
 import 'data/models/report_priority.dart';
 
 /// Create-report flow: title, description, category (from the database),
@@ -81,6 +82,53 @@ class _CreateReportScreenState extends State<CreateReportScreen> {
     }
   }
 
+  Future<void> _pickCategory() async {
+    if (_controller.categories.isEmpty) return;
+    final selected = await showModalBottomSheet<ReportCategory>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (context) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.55,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        builder: (context, scrollController) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                'Choose a category',
+                style: Theme.of(context).textTheme.titleMedium,
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                controller: scrollController,
+                children: [
+                  for (final category in _controller.categories)
+                    ListTile(
+                      title: Text(category.name),
+                      selected: category.id == _controller.categoryId,
+                      trailing: category.id == _controller.categoryId
+                          ? Icon(
+                              Icons.check,
+                              color: Theme.of(context).colorScheme.primary,
+                            )
+                          : null,
+                      onTap: () => Navigator.of(context).pop(category),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (selected != null) _controller.setCategoryId(selected.id);
+  }
+
   String? get _validationMessage =>
       _attempted ? _controller.validationMessage : null;
 
@@ -148,25 +196,10 @@ class _CreateReportScreenState extends State<CreateReportScreen> {
             ),
           ),
           const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            initialValue: _controller.categoryId,
-            decoration: InputDecoration(
-              labelText: 'Category',
-              prefixIcon: const Icon(Icons.category_outlined),
-              errorText: _validationMessage != null && _controller.categoryId == null
-                  ? 'Choose a category.'
-                  : null,
-            ),
-            items: _controller.categoriesFailed
-                ? const []
-                : [
-                    for (final category in _controller.categories)
-                      DropdownMenuItem(
-                        value: category.id,
-                        child: Text(category.name),
-                      ),
-                  ],
-            onChanged: _controller.setCategoryId,
+          _CategoryField(
+            controller: _controller,
+            validationMessage: _validationMessage,
+            onPick: _pickCategory,
           ),
           if (_controller.categoriesFailed) ...[
             const SizedBox(height: 8),
@@ -190,22 +223,25 @@ class _CreateReportScreenState extends State<CreateReportScreen> {
             style: theme.textTheme.titleSmall,
           ),
           const SizedBox(height: 8),
-          SegmentedButton<String>(
-            emptySelectionAllowed: true,
-            segments: [
-              for (final priority in ReportPriority.values)
-                if (priority != ReportPriority.unknown)
-                  ButtonSegment(
-                    value: priority.apiValue,
-                    label: Text(priority.label),
-                    icon: Icon(_priorityIcon(priority), size: 16),
-                  ),
-            ],
-            selected: {
-              if (_controller.priority != null) _controller.priority!,
-            },
-            onSelectionChanged: (selection) =>
-                _controller.setPriority(selection.first),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: SegmentedButton<String>(
+              emptySelectionAllowed: true,
+              segments: [
+                for (final priority in ReportPriority.values)
+                  if (priority != ReportPriority.unknown)
+                    ButtonSegment(
+                      value: priority.apiValue,
+                      label: Text(priority.label),
+                      icon: Icon(_priorityIcon(priority), size: 16),
+                    ),
+              ],
+              selected: {
+                if (_controller.priority != null) _controller.priority!,
+              },
+              onSelectionChanged: (selection) =>
+                  _controller.setPriority(selection.first),
+            ),
           ),
           if (_validationMessage != null && _controller.priority == null) ...[
             const SizedBox(height: 8),
@@ -289,6 +325,59 @@ class _CreateReportScreenState extends State<CreateReportScreen> {
         ReportPriority.low => Icons.arrow_downward,
         _ => Icons.remove,
       };
+}
+
+class _CategoryField extends StatelessWidget {
+  const _CategoryField({
+    required this.controller,
+    required this.validationMessage,
+    required this.onPick,
+  });
+
+  final CreateReportController controller;
+  final String? validationMessage;
+  final VoidCallback onPick;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final selectedName = controller.categoryId == null
+        ? null
+        : controller.categories
+            .where((category) => category.id == controller.categoryId)
+            .map((category) => category.name)
+            .firstOrNull;
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Category',
+        prefixIcon: const Icon(Icons.category_outlined),
+        errorText: validationMessage != null && controller.categoryId == null
+            ? 'Choose a category.'
+            : null,
+      ),
+      child: InkWell(
+        onTap: onPick,
+        borderRadius: BorderRadius.circular(4),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                selectedName ?? 'Choose a category',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: selectedName == null
+                    ? theme.textTheme.bodyLarge
+                        ?.copyWith(color: theme.colorScheme.onSurfaceVariant)
+                    : theme.textTheme.bodyLarge,
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.expand_more),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EvidenceThumb extends StatelessWidget {

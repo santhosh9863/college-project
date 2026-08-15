@@ -192,38 +192,54 @@ class _FilterBar extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: DropdownButtonFormField<String>(
-                  initialValue: controller.categoryId,
-                  isDense: true,
-                  decoration: const InputDecoration(
-                    labelText: 'Category',
-                    prefixIcon: Icon(Icons.category_outlined),
-                  ),
-                  items: [
-                    const DropdownMenuItem(
-                      value: null,
-                      child: Text('All categories'),
-                    ),
-                    for (final category in controller.categories)
-                      DropdownMenuItem(
-                        value: category.id,
-                        child: Text(category.name),
-                      ),
-                  ],
-                  onChanged: (value) =>
-                      controller.setCategoryFilter(value),
+          LayoutBuilder(
+            builder: (context, constraints) {
+              final categoryField = DropdownButtonFormField<String>(
+                initialValue: controller.categoryId,
+                isDense: true,
+                decoration: const InputDecoration(
+                  labelText: 'Category',
                 ),
-              ),
-              const SizedBox(width: 12),
-              FilterChip(
+                items: [
+                  const DropdownMenuItem(
+                    value: null,
+                    child: Text('All categories'),
+                  ),
+                  for (final category in controller.categories)
+                    DropdownMenuItem(
+                      value: category.id,
+                      child: Text(category.name),
+                    ),
+                ],
+                onChanged: (value) =>
+                    controller.setCategoryFilter(value),
+              );
+              final mineChip = FilterChip(
                 label: const Text('My reports'),
                 selected: controller.mineOnly,
                 onSelected: controller.setMineOnly,
-              ),
-            ],
+              );
+              if (constraints.maxWidth < 520) {
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: categoryField,
+                    ),
+                    const SizedBox(height: 8),
+                    mineChip,
+                  ],
+                );
+              }
+              return Row(
+                children: [
+                  Expanded(child: categoryField),
+                  const SizedBox(width: 12),
+                  mineChip,
+                ],
+              );
+            },
           ),
           if (controller.hasActiveFilters) ...[
             const SizedBox(height: 8),
