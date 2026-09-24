@@ -563,11 +563,10 @@ Deno.serve(async (req) => {
   // --- 1. Staff login path (no Linways handshake) -----------------------------
   // Staff (hod/technician/operations/admin) are not Linways users. A matching
   // staff profile routes to a direct Supabase password check; the returned
-  // profile keeps the staff role (the app renders the matching panel). The
-  // single shared demo account (role admin) can open every panel through the
-  // app's panel switcher; real per-role staff accounts work the same way.
-  // Students always continue to the Linways handshake below (their Linways
-  // usernames never match a staff profile email).
+  // profile keeps the staff role, so each account sees only its own panel and
+  // only the reports routed to that role (RLS + category_routes are the
+  // enforcement). Students always continue to the Linways handshake below
+  // (their Linways usernames never match a staff profile email).
   const STAFF_ROLES = new Set(["hod", "technician", "operations", "admin"]);
   const { data: staffMatch } = await serviceDb
     .from("profiles")
