@@ -25,11 +25,14 @@ class AuthRepository {
     required String password,
   }) async {
     final result = await _api.login(username: username, password: password);
-    await _secureStore.writeLinwaysCookies(result.linwaysSessionCookies);
+    // Establish the Supabase session first: if it fails there is no signed-in
+    // user, and persisting Linways cookies first would leave the device holding
+    // session cookies with no matching session.
     await _supabase.auth.setSession(
       result.refreshToken,
       accessToken: result.accessToken,
     );
+    await _secureStore.writeLinwaysCookies(result.linwaysSessionCookies);
     return result;
   }
 

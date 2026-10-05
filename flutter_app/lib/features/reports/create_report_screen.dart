@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 
@@ -77,8 +78,29 @@ class _CreateReportScreenState extends State<CreateReportScreen> {
       return;
     }
     final reportId = await _controller.submit();
-    if (reportId != null && mounted) {
-      Navigator.of(context).pop(reportId);
+    if (reportId == null || !mounted) return;
+
+    // The report exists even when some attachments failed, so this is a partial
+    // success. Capture the messenger before popping, since this route's context
+    // is defunct afterwards.
+    final failed = _controller.failedEvidenceCount;
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
+    navigator.pop(reportId);
+
+    if (failed > 0) {
+      final files = failed == 1 ? '1 file' : '$failed files';
+      final detail = kDebugMode
+          ? ' ($_controller.lastEvidenceError)'
+          : '';
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Report saved, but $files could not be '
+              'attached.$detail'),
+          backgroundColor: Theme.of(context).colorScheme.error,
+        ),
+      );
     }
   }
 

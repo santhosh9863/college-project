@@ -157,6 +157,30 @@ void main() {
       );
     });
 
+    test('maps 540 (project paused) to projectUnavailable', () async {
+      final mock = MockClient((_) async => http.Response('not json', 540));
+
+      await expectLater(
+        ApiClient(httpClient: mock).login(username: 'u', password: 'p'),
+        throwsA(
+          isA<LoginException>()
+              .having((e) => e.kind, 'kind', LoginFailureKind.projectUnavailable),
+        ),
+      );
+    });
+
+    test('maps 544 (gateway timeout) to projectUnavailable', () async {
+      final mock = MockClient((_) async => http.Response('', 544));
+
+      await expectLater(
+        ApiClient(httpClient: mock).login(username: 'u', password: 'p'),
+        throwsA(
+          isA<LoginException>()
+              .having((e) => e.kind, 'kind', LoginFailureKind.projectUnavailable),
+        ),
+      );
+    });
+
     test('maps transport failures to networkError', () async {
       final mock = MockClient(
         (_) async => throw http.ClientException('connection refused'),

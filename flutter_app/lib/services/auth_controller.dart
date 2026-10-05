@@ -67,7 +67,16 @@ class AuthController extends ChangeNotifier {
     } on LoginException catch (error) {
       _error = error;
       _status = AuthStatus.signedOut;
-    } catch (_) {
+    } catch (error, stackTrace) {
+      // Never reached for LoginException, which carries its own copy. This is
+      // the only place a post-response failure (secure storage write, Supabase
+      // setSession) can surface, and it used to be discarded entirely. Logged
+      // in debug builds only; types and messages carry no credential material.
+      assert(() {
+        debugPrint('AuthController.login failed: ${error.runtimeType}: $error');
+        debugPrintStack(stackTrace: stackTrace, label: 'AuthController.login');
+        return true;
+      }());
       _error = const LoginException(LoginFailureKind.unexpected);
       _status = AuthStatus.signedOut;
     }

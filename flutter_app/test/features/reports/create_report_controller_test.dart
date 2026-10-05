@@ -47,6 +47,9 @@ class _FakeReportsRepository extends ReportsRepository {
   final List<String> uploaded = [];
   bool communityChecked = false;
 
+  /// Paths that should throw, to simulate a storage-layer failure.
+  final Set<String> failEvidencePaths = {};
+
   @override
   Future<String?> fetchMyCommunityId() async {
     communityChecked = true;
@@ -85,6 +88,9 @@ class _FakeReportsRepository extends ReportsRepository {
     required String contentType,
   }) async {
     uploaded.add(filePath);
+    if (failEvidencePaths.contains(filePath)) {
+      throw Exception('storage rejected $filePath');
+    }
     return EvidenceFile(
       id: 'e-1',
       reportId: reportId,
@@ -261,6 +267,66 @@ void main() {
       expect(controller.error, contains('Could not create the report'));
       expect(controller.error, contains('Details (debug)'));
       expect(controller.error, contains('create failed'));
+    });
+
+    test('a failed evidence upload does not discard the created report',
+        () async {
+      final repo = _FakeReportsRepository()..failEvidencePaths.add('C:/tmp/a.png');
+      final controller = CreateReportController(
+        repository: repo,
+        categoriesRepository: _FakeCategoriesRepository(),
+        profile: _profile(),
+        community: _community(),
+      );
+      await settle();
+
+      controller.setTitle('t');
+      controller.setDescription('d');
+      controller.setCategoryId('cat-1');
+      controller.setPriority('low');
+      controller.addEvidence(const EvidenceDraft(
+        path: 'C:/tmp/a.png',
+        fileName: 'a.png',
+        contentType: 'image/png',
+      ));
+
+      final id = await controller.submit();
+
+      expect(id, 'report-1');
+      expect(controller.error, isNull);
+      expect(controller.lastSubmitError, isNull);
+      expect(controller.failedEvidenceCount, 1);
+      expect(controller.lastEvidenceError.toString(),
+          contains('storage rejected'));
+    });
+
+    test('evidence uploads continue after one fails', () async {
+      final repo = _FakeReportsRepository()..failEvidencePaths.add('C:/tmp/a.png');
+      final controller = CreateReportController(
+        repository: repo,
+        categoriesRepository: _FakeCategoriesRepository(),
+        profile: _profile(),
+        community: _community(),
+      );
+      await settle();
+
+      controller.setTitle('t');
+      controller.setDescription('d');
+      controller.setCategoryId('cat-1');
+      controller.setPriority('low');
+      for (final path in ['C:/tmp/a.png', 'C:/tmp/b.png', 'C:/tmp/c.png']) {
+        controller.addEvidence(EvidenceDraft(
+          path: path,
+          fileName: path.split('/').last,
+          contentType: 'image/png',
+        ));
+      }
+
+      final id = await controller.submit();
+
+      expect(id, 'report-1');
+      expect(repo.uploaded, hasLength(3));
+      expect(controller.failedEvidenceCount, 1);
     });
 
     test('submit is a no-op while invalid or already submitting', () async {

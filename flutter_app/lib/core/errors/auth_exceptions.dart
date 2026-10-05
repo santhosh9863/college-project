@@ -4,6 +4,11 @@ enum LoginFailureKind {
   rateLimited,
   invalidRequest,
   serviceUnavailable,
+
+  /// The Supabase project itself cannot serve requests (54X platform errors,
+  /// e.g. 540 "project paused"). Retrying will not help until the project
+  /// owner restores it.
+  projectUnavailable,
   provisioningFailed,
   networkError,
   unexpected,
@@ -29,6 +34,8 @@ class LoginException implements Exception {
           'Please check your username and password and try again.',
         LoginFailureKind.serviceUnavailable =>
           'The login service is temporarily unavailable. Please try again in a moment.',
+        LoginFailureKind.projectUnavailable =>
+          'The college project server is offline. Please contact your administrator.',
         LoginFailureKind.provisioningFailed =>
           'Account setup failed. Please try again.',
         LoginFailureKind.networkError =>
