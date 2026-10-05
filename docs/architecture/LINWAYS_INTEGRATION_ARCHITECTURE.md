@@ -2,7 +2,17 @@
 
 > Design proposal for integrating college project with the college Linways system (UUCMS credentials) and the academic community model.
 >
-> **Status: DECISIONS LOCKED (items 1–10 approved conceptually). Final schema + authentication architecture shown at the end for approval. No code, no migrations, no Supabase changes.**
+> **Status: DECISIONS LOCKED (items 1–10 approved conceptually).** This is the design
+> proposal that `supabase/functions/linways-login/index.ts` implements.
+> ⚠️ **Partly superseded — read `docs/decisions/ADR-001-Authentication.md` first.**
+> The status line this banner replaces claimed "no code, no migrations"; both exist.
+> Two specific claims are now false: the login response field is `supabase_session`,
+> not `campus_pulse_jwt`, and the "short-lived **college project JWT**" phrasing
+> throughout this document means a real GoTrue session (`access_token` +
+> `refresh_token`, auto-refreshed), not a self-signed token. Item 5's "staff
+> provisioning OUT OF MVP" is superseded by ADR-001 §2.6 — staff login is implemented,
+> but its seed migration `20261005120000` has not been applied. Items 1–4 and 6–10
+> still hold as originally decided.
 > Based on the Linways investigation (confirmed via Chrome DevTools / HTTP inspection):
 
 | Confirmed Linways endpoint | Method | Purpose |
@@ -97,8 +107,8 @@ sequenceDiagram
     LIN-->>AUTH: name, registerNo, programme, batchName, currentSem, email
     AUTH->>AUTH: derive community (course, batch_year, semester, section)
     AUTH->>DB: upsert profile; get-or-create community + active membership
-    AUTH-->>App: { campus_pulse_jwt, linways_session_cookies, profile, community }
-    Note over App: Linways cookies + college project JWT stored in FlutterSecureStorage
+    AUTH-->>App: { supabase_session { access_token, refresh_token }, linways_session_cookies, profile, community }
+    Note over App: Linways cookies + Supabase session stored in FlutterSecureStorage
     Note over AUTH: server discards Linways session — retains nothing
 ```
 

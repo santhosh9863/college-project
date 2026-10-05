@@ -1,8 +1,18 @@
 # Database Design
 
 > PostgreSQL database schema design for the college project system.
-> **Status: APPROVED — v1.0. Migrations generated (14 files under `supabase/migrations/`), not yet applied to any database.**
-> **v2 proposal (communities + Linways integration): §9 below — decisions LOCKED, awaiting final approval; no migrations changed.**
+> ⚠️ **Status: SUPERSEDED IN PART — this document predates the applied migrations.**
+> Its header previously read "APPROVED — v1.0. Migrations generated (14 files), not yet
+> applied to any database." Both halves are now wrong: there are **35** migration
+> files, and all but two have been applied by hand.
+> **Read `docs/decisions/ADR-002-Database.md` for the schema as actually built.** Known
+> divergences recorded there: this document lists 14 tables (there are 15 —
+> `login_attempts` is missing), omits the `'critical'` priority value, documents a
+> 13-step apply order that is not the real one, and states at §5 that RLS is out of
+> scope — but 28 RLS policies are applied.
+> The one claim here that remains accurate is the "do not add undocumented fields" rule
+> (§8), which the migrations then broke twice, by adding `reports.community_id` and
+> `'critical'`.
 
 ---
 

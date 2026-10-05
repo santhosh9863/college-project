@@ -2,7 +2,15 @@
 
 > How the college project's Linways-based login produces the token that Supabase RLS will enforce against.
 > **Purpose:** clears dependency **u22** in `docs/architecture/RLS_POLICIES.md` — RLS SQL must NOT be written until this recommendation is approved.
-> **Status: INVESTIGATION COMPLETE — RECOMMENDATION PENDING OWNER APPROVAL. No implementation.**
+> **Status: ACCEPTED — APPROACH A IMPLEMENTED.** This document was originally an
+> investigation ("recommendation pending owner approval", "no implementation"). That
+> status is stale: Approach A is shipped at
+> `supabase/functions/linways-login/index.ts:490-513`, and the RLS it gated exists as
+> 28 policies in `20260811103300_rls_security.sql`. The decision it reached is now
+> recorded in `docs/decisions/ADR-001-Authentication.md` §2.2, which supersedes this
+> document. **Two claims below are known to be wrong and are preserved as-written:**
+> `admin.updateUserById` on repeat logins (§2.2) is not implemented, and the identity
+> lookup is by `profiles.student_id`, not by deterministic email (§2.2).
 > Sources: official Supabase documentation (JWT guide, JWT claims reference, Row Level Security, Auth Admin API, Custom Access Token Hooks, JWT Signing Keys, Edge Functions auth) plus current community reports on `auth.uid()` behavior.
 
 ---
@@ -122,4 +130,5 @@ This keeps the auth service **stateless** (no server session state), satisfies a
 | Custom Access Token Hook mirroring `profiles.role` | Optional later optimization; not required for MVP |
 | Token lifetime tuning | Supabase defaults; no change needed for MVP |
 
-*Investigation only — no implementation, no schema changes, no RLS SQL.*
+*Originally investigation only. Approach A has since been approved and implemented;
+see the status header and `docs/decisions/ADR-001-Authentication.md`.*

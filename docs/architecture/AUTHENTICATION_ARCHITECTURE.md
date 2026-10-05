@@ -37,7 +37,7 @@ sequenceDiagram
     LIN-->>AUTH: name, registerNo, programme, batchName, currentSem, email
     AUTH->>AUTH: derive community from batchName + currentSem
     AUTH->>DB: upsert profile; get-or-create community + active membership
-    AUTH-->>App: { campus_pulse_jwt, linways_session_cookies, profile, community }
+    AUTH-->>App: { supabase_session { access_token, refresh_token }, linways_session_cookies, profile, community }
     App->>App: store both in FlutterSecureStorage; server retains nothing
 ```
 
@@ -46,8 +46,12 @@ sequenceDiagram
 ## 2. User Roles & Permissions
 
 - **`student`** — the only self-registering role; created from a successful Linways login.
-- **`hod` / `technician` / `operations` / `admin`** — staff roles; **provisioning OUT OF MVP** (locked decision 5). The `user_role` enum and `category_routes` architecture are retained, untouched.
-- Community membership defines **student visibility scope**; staff access is defined by role + `category_routes` routing and later RLS.
+- **`hod` / `technician` / `operations` / `admin`** — staff roles. Staff login is
+  **implemented** (`supabase/functions/linways-login/index.ts:563-608`): a Supabase
+  email+password check that returns a normal session. Locked decision 5 has since been
+  superseded — see `docs/decisions/ADR-001-Authentication.md` §2.6. The accounts are
+  seeded by `supabase/migrations/20261005120000_seed_staff_demo_accounts.sql`, which
+  **has not been applied yet**, so staff login does not currently work.
 
 ## 3. Session Management
 
@@ -56,8 +60,11 @@ Two independent credentials:
 | Credential | Where held | Used for | Lifetime |
 |---|---|---|---|
 | **Linways session** (`AUTH_SESSION`, `refresh_token`) | Device — FlutterSecureStorage (encrypted) | Direct Linways calls (attendance dashboard) | Controlled by Linways; 401 → re-login |
-| **college project JWT** | Device — FlutterSecureStorage | college project APIs (Supabase, RLS) | Short-lived |
+| **Supabase session** (`access_token`, `refresh_token`) | Device — FlutterSecureStorage via the SDK's `LocalStorage` hook | college project APIs (Supabase, RLS) | Access token ~1 h, auto-refreshed from the long-lived refresh token |
 
+- **The Supabase token is a real GoTrue session, not a self-signed JWT.** It is minted
+  by `generateLink` + `verifyOtp` (`index.ts:490-513`) so that `auth.uid()` resolves
+  natively. See `ADR-001-Authentication.md` §2.2.
 - **Server side:** nothing persisted; the auth service is stateless.
 - Logout clears both credentials from the device. There is no server-side Linways revocation (Linways expiry applies).
 

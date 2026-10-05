@@ -1,7 +1,20 @@
 # ADR-004: Linways Integration & Community Model
 
 > Decision record for integrating college project with Linways authentication and the academic community model.
-> **Status: DECISIONS LOCKED (items 1–10 approved conceptually). Awaiting final approval of the documented schema + authentication architecture. No implementation.**
+> **Status: DECISIONS LOCKED (items 1–10). IMPLEMENTED.** This record is
+> **superseded in part by `ADR-001-Authentication.md`** and `ADR-002-Database.md`.
+> Three items drifted during implementation:
+> - **Item 5 (staff out of MVP)** — staff authentication is built
+>   (`index.ts:563-608`), though its seed migration `20261005120000` is unapplied. See
+>   ADR-001 §2.6.
+> - **Item 7 (`community_pending`)** — not implemented. Unmappable students get
+>   `community: null`; no status column exists to persist a pending marker. See ADR-001
+>   §5.1.
+> - **Item 9 ("college project JWT")** — implemented as a genuine GoTrue session, not
+>   a self-signed token. See ADR-001 §2.2.
+>
+> Items 1–4, 6, 8 and 10 hold as originally decided and are confirmed by the applied
+> migrations.
 
 ---
 
