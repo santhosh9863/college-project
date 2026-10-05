@@ -768,6 +768,75 @@ $q$,
   $q$select (deleted_at is not null)::text from public.reports where id = 'f1ce0000-0000-4000-8000-000000000022'$q$,
   'false');
 
+-- ------------------------------------------------------------------ u8 diag ---
+-- Term-by-term breakdown of the u8 gate, evaluated as alice. These rows are
+-- INFORMATIONAL: some are expected to read 'false' and that is the point. If
+-- can_update_report() returns true when called directly but the UPDATE is still
+-- rejected with 42501, the fault is in the policy wiring rather than in the
+-- function; if it returns false, the rows below name the failing condition.
+-- ...20 is untouched at this point, because the failed attempt above was rolled
+-- back to its own subtransaction.
+
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'my_role() as alice', 'informational',
+       coalesce(public.my_role()::text, '(null)');
+
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'auth.uid() is set', 'informational',
+       coalesce(auth.uid()::text, '(null)');
+
+-- The USING gate, called directly. Coalesced because the underlying expression is
+-- `my_role() = 'student' and exists (...)`, which yields NULL rather than false if
+-- my_role() is NULL, and `actual` is NOT NULL.
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'USING gate can_update_report_row(...20)', 'informational',
+       coalesce(public.can_update_report_row(
+                  'f1ce0000-0000-4000-8000-000000000020')::text, '(null)');
+
+-- The WITH CHECK gate, called directly with the same arguments the policy
+-- supplies. If this is 'true' the function is fine and the policy is the problem.
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'WITH CHECK gate can_update_report(...20,pending,now())', 'informational',
+       public.can_update_report(
+         'f1ce0000-0000-4000-8000-000000000020', 'pending', now())::text;
+
+-- Each individual term the student branch ANDs together.
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'term: ...20 visible to alice', 'informational',
+       public.report_visible_to_caller('f1ce0000-0000-4000-8000-000000000020')::text;
+
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'term: ...20 row-aware visible (old deleted_at)', 'informational',
+       coalesce((
+         select public.report_visible_to_caller_row(
+                  r.id, r.community_id, r.reporter_id, r.deleted_at)::text
+           from public.reports r
+          where r.id = 'f1ce0000-0000-4000-8000-000000000020'),
+         '(row not visible to alice)');
+
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'term: old status / old deleted_at as the gate reads them', 'informational',
+       coalesce((
+         select r.status::text || ' / ' || coalesce(r.deleted_at::text, 'null')
+           from public.reports r
+          where r.id = 'f1ce0000-0000-4000-8000-000000000020'),
+         '(row not visible to alice)');
+
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'term: alice is the reporter of ...20', 'informational',
+       exists (select 1 from public.reports r
+                where r.id = 'f1ce0000-0000-4000-8000-000000000020'
+                  and r.reporter_id = auth.uid())::text;
+
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u8-diag', 'term: my_community_id() vs ...20 community', 'informational',
+       coalesce((
+         select coalesce(public.my_community_id()::text, '(null)')
+                  || ' vs ' || r.community_id::text
+           from public.reports r
+          where r.id = 'f1ce0000-0000-4000-8000-000000000020'),
+         '(row not visible to alice)');
+
 -- u10: not your own report. ...20 is alice's own pending report.
 select f1ce_rls.rls_denied('u10', 'alice cannot support her own report', $q$
   insert into public.report_supports (report_id, supporter_id)
@@ -1179,36 +1248,61 @@ reset role;
 --    it will be the summary, and it will tell you everything.
 -- =============================================================================
 
--- 4a. Full detail, failures first.
+-- 4a. Full detail, failures first, diagnostics last.
 select
-  case when f1ce_rls.is_pass(expected, actual) then 'PASS' else 'FAIL' end as result,
+  case when expected = 'informational'                            then 'INFO'
+       when f1ce_rls.is_pass(expected, actual)                     then 'PASS'
+       else 'FAIL'
+  end as result,
   requirement,
   expectation,
   expected,
   actual,
   error_detail
 from public.rls_test_results
-order by (case when f1ce_rls.is_pass(expected, actual) then 1 else 0 end) asc,
+order by (case when expected = 'informational'                        then 2
+                when f1ce_rls.is_pass(expected, actual)                then 1
+                else 0
+           end) asc,
          requirement, id;
 
--- 4b. THE ONE TO READ. Counts, then every failure spelled out with the real
---     Postgres error that caused it.
+-- 4b. THE ONE TO READ.
+--
+--     NOTE: there is deliberately NO query-level WHERE clause here. An earlier
+--     draft filtered to failures at the query level, which silently restricted
+--     every COUNT(*) to the failure set and made `total`/`passed` meaningless.
+--     The selection is done with aggregate FILTER clauses instead, so the counts
+--     describe all rows while only the failure list is filtered.
+--
+--     The u8 gate breakdown travels with the summary because the Supabase SQL
+--     Editor reliably surfaces only the final statement's rows; without this the
+--     diagnostics would sit in the detail grid where they are rarely looked at.
 select
-  count(*) as total,
-  count(*) filter (where f1ce_rls.is_pass(expected, actual)) as passed,
-  count(*) filter (where not f1ce_rls.is_pass(expected, actual)) as failed,
+  count(*) filter (where expected <> 'informational') as total,
+  count(*) filter (where expected <> 'informational'
+                     and f1ce_rls.is_pass(expected, actual)) as passed,
+  count(*) filter (where expected <> 'informational'
+                     and not f1ce_rls.is_pass(expected, actual)) as failed,
   count(*) filter (
     where requirement = 'sanity'
       and not f1ce_rls.is_pass(expected, actual)) as fixture_problems,
+  count(*) filter (where expected = 'informational') as diagnostic_rows,
   coalesce(
     string_agg(
       format('%s :: %s :: expected %s :: got %s :: pgerror: %s',
              requirement, expectation, expected, actual,
              coalesce(error_detail, '(none)')),
-      E'\n' order by id),
-    'no failures') as failure_detail
-from public.rls_test_results
-where not f1ce_rls.is_pass(expected, actual);
+      E'\n' order by id)
+      filter (where expected <> 'informational'
+                and not f1ce_rls.is_pass(expected, actual)),
+    'no failures') as failure_detail,
+  coalesce(
+    (select string_agg(
+              format('    %s = %s', expectation, actual), E'\n' order by id)
+       from public.rls_test_results
+      where expected = 'informational'),
+    '  (none)') as diagnostic_detail
+from public.rls_test_results;
 
 -- =============================================================================
 -- 5. Cleanup.
