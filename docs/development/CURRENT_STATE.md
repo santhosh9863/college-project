@@ -18,15 +18,25 @@ run them in any order.
 |---|---|---|
 | 1 | `supabase/migrations/20261005120000_seed_staff_demo_accounts.sql` | All staff login + all four panel demos |
 | 2 | `20261005123000_ai1_duplicate_detection.sql` | Duplicate flagging (`duplicate_of`) |
-| 3 | The one query in §3.1 | The evidence-upload fix |
+| 3 | `20261005130000_fix_evidence_path_prefix.sql` | Evidence upload — see below, **found 2026-10-05** |
+| 4 | The one query in §3.1 | The remaining `NoSuchBucket` half of the evidence bug |
 
-None of them has ever been executed. Items 1 and 2 are written and
-syntax-checked; item 3 is a read-only query.
+None of them has ever been executed. Items 1–3 are written and syntax-checked;
+item 4 is a read-only query.
 
-Student login works. Submitting a report works **if you attach nothing** —
-evidence upload is the one open bug. AI is now AI-0 (ADR written) + AI-1
-(duplicate detection, not applied); classification and priority prediction
-are still unbuilt proposals.
+**The evidence blocker is now two independent bugs, not one.** Reading
+`reports_repository.dart` against `storage_evidence_report_id` turned up a
+second one that is a **live regression**: the client uploads to
+`evidence/$reportId/<file>` but the parser reads folder `[1]` as the report
+UUID, which only matches a path with no prefix. So `foldername()[1]` is the
+literal string `evidence` and `'evidence'::uuid` **throws**. That has been
+breaking evidence upload since `20260815105000`. `20261005130000` accepts both
+path shapes and fails closed instead of throwing — apply it, it needs no
+decision from you.
+
+Student login works. Submitting a report works **if you attach nothing**.
+AI is AI-0 (ADR written) + AI-1 (duplicate detection, not applied);
+classification and priority prediction are still unbuilt proposals.
 
 Nothing is uncommitted.
 
@@ -322,9 +332,14 @@ Also still open: the `0.85` threshold is a **guess, not measured** (ADR-003
   checked, never executed. Blocks all staff login and all four panel demos.
 - **Run `20261005123000_ai1_duplicate_detection.sql`** — written, never executed.
   Until it runs, the duplicate notice is dead UI.
-- Run the §3.1 type query — blocks the evidence upload fix
+- **Run `20261005130000_fix_evidence_path_prefix.sql`** — written, never executed.
+  Live evidence-upload regression; see §7 of `STORAGE_DESIGN.md`.
+- Run the §3.1 type query — blocks the remaining `NoSuchBucket` half
 - AI-2+ (Edge Function, dataset, classification, priority)
 - Install the Supabase CLI — every migration is currently hand-applied
+- **Evidence retention policy** — nothing ever deletes a storage object. Soft-deleting
+  a report leaves its files forever. Security is fine (admin-only delete, nothing
+  public), but it is a retention and cost decision nobody has made. `STORAGE_DESIGN.md` §6
 - Real checkpoint doc for this phase (this file serves as it for now)
 
 ---
