@@ -10,6 +10,8 @@
 > **Read `docs/decisions/ADR-002-Database.md` for the schema and security model as
 > built.** Two rows below are wrong as written — u23 and the u2/u10 grants — and are
 > marked inline.
+> **These policies are executable, not just documented:** `supabase/tests/rls_policy_tests.sql`
+> asserts u1–u23 against a live database — see §7.
 > **Dependencies cleared:** u22 via `docs/architecture/JWT_AUTH_COMPATIBILITY.md`;
 > u7 via `docs/architecture/REPORT_LIFECYCLE.md` (D1–D10 + amended matrix). Note the
 > lifecycle is D1–D10, not D1–D9; D10 is the removed `pending → resolved` transition.
@@ -24,6 +26,7 @@
 4. [Cross-Cutting Guards](#4-cross-cutting-guards)
 5. [Dependencies & Blockers](#5-dependencies--blockers)
 6. [Implementation Order (after approval)](#6-implementation-order-after-approval)
+7. [Executable Verification](#7-executable-verification)
 
 ---
 
@@ -236,10 +239,38 @@ Legend: **S**=student, **H**=hod, **T**=technician, **O**=operations, **A**=admi
 ## 6. Implementation Order (pending explicit authorization)
 
 1. ~~Generate the RLS migration~~ — **done**, `20260811103300_rls_security.sql`.
-2. ~~Apply via the established preflight flow~~ — **partly done**: 33 of 35 migrations
+2. ~~Apply via the established preflight flow~~ — **partly done**: 33 of 36 migrations
    were applied by hand through the SQL Editor (no Supabase CLI in this environment),
    so the `migration list --linked` / `db push` flow in this section was never used.
-   `20261005120000` (staff seed) and `20261005123000` (AI-1) remain unapplied.
+   `20261005120000` (staff seed), `20261005123000` (AI-1) and `20261005130000`
+   (evidence path prefix fix) remain unapplied.
+3. ~~Prove the policies~~ — **done**: `supabase/tests/rls_policy_tests.sql` asserts
+   u1–u23 and the D1–D10 lifecycle invariants against a live database. See §7.
 
 *This document is the design record. The applied SQL is the source of truth — see
 `docs/decisions/ADR-002-Database.md` §1.1 for the full list of divergences.*
+
+---
+
+## 7. Executable Verification
+
+`supabase/tests/rls_policy_tests.sql` is the executable form of this document. It
+asserts every requirement in §1 and the lifecycle invariants from
+`REPORT_LIFECYCLE.md` against a real database, rather than leaving them as prose.
+
+Run it by pasting the whole file into the **Supabase SQL Editor**. There is no
+Supabase CLI in this environment, so it cannot be run from the repo. It needs only
+migrations through `20260815125000` and it works on either side of AI-1.
+
+How it works, and why it is safe to point at a live database:
+
+| Concern | Approach |
+|---|---|
+| No service-role key | Never used. It impersonates users with `set local role authenticated` plus `request.jwt.claims`, so every predicate resolves `auth.uid()` / `my_role()` exactly as it would in production. |
+| No persistent state | Everything runs in one transaction that ends in `ROLLBACK`. Fixtures, the results table and the helper functions all disappear. |
+| No pollution | Fixture rows are fresh uuids sharing the `f1ce0000` prefix, and every count filters on it, so a run measures the fixtures and not the existing data. The `GENERAL` department and the two `BCA 2024 S5/S6 C` communities are **resolved by key and reused** rather than inserted, because both have uniqueness constraints a fixture id cannot dodge. |
+| "Denied" is not always an error | A `WHERE` matching only RLS-hidden rows updates **zero** rows and reports success. Every "must not change" test therefore asserts the resulting **row state** via a `SECURITY DEFINER` probe, which holds whether the statement raised or was silently filtered — and which also catches the dangerous case where it succeeded and did change the row. |
+
+A failing assertion means the database disagrees with this document. That is the
+point: it is either a real security bug or a documentation error, and both are
+worth finding before a demo rather than after.

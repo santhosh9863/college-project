@@ -20,9 +20,11 @@ run them in any order.
 | 2 | `20261005123000_ai1_duplicate_detection.sql` | Duplicate flagging (`duplicate_of`) |
 | 3 | `20261005130000_fix_evidence_path_prefix.sql` | Evidence upload — see below, **found 2026-10-05** |
 | 4 | The one query in §3.1 | The remaining `NoSuchBucket` half of the evidence bug |
+| 5 | `supabase/tests/rls_policy_tests.sql` | **Proves** the 32 RLS policies actually hold — §7c |
 
 None of them has ever been executed. Items 1–3 are written and syntax-checked;
-item 4 is a read-only query.
+item 4 is a read-only query; item 5 is a self-contained test transaction that rolls
+itself back (§7c).
 
 **The evidence blocker is now two independent bugs, not one.** Reading
 `reports_repository.dart` against `storage_evidence_report_id` turned up a
@@ -38,6 +40,10 @@ Student login works. Submitting a report works **if you attach nothing**.
 AI is AI-0 (ADR written) + AI-1 (duplicate detection, not applied);
 classification and priority prediction are still unbuilt proposals.
 
+**The 32 RLS policies now have an executable test suite** (§7c) — the first thing
+in this project that can actually *prove* a security claim rather than assert it in
+prose. It has never been run: paste it into the SQL Editor.
+
 Nothing is uncommitted.
 
 ---
@@ -51,6 +57,7 @@ Nothing is uncommitted.
 | Student report create (no evidence) | ✅ Working |
 | Student report create (with evidence) | ❌ **Broken** — open blocker §3 |
 | Staff panels (4 roles) | ✅ Built, untested this session |
+| **RLS policy correctness** | 🟡 **Executable suite written, never run** — §7c. 32 policies previously rested on prose alone |
 | Notifications / analytics | ✅ Built (phases 2.8, 2.9) |
 | Attendance + OCR import | ✅ Built (ML Kit, separate from reports) |
 | AI / ML | 🟡 AI-0 + AI-1 written, **not applied** — duplicate detection only (§6) |
@@ -80,6 +87,28 @@ Ten files, no new files, no migrations.
 | `test/api_client_test.dart` | +2 tests (540, 544) | |
 | `test/.../create_report_controller_test.dart` | +2 tests (failed upload keeps report; uploads continue past failure) | |
 | `docs/architecture/AI_ARCHITECTURE.md` | Filled — was an **empty skeleton** | See §6 |
+
+---
+
+## 2b. Changes made 2026-10-05
+
+Four commits. No Dart behaviour changes — `flutter analyze` clean and 258/258 tests
+pass at every one of them, and the test count did not move, which is the point of
+the last one.
+
+| Commit | Change | Why |
+|---|---|---|
+| `00713cc` | Duplicate-flagged reports surfaced to students **and** staff: `Report.duplicateOf` + `isDuplicate`, repository wiring, a shared card, a staff queue `Duplicate` badge, navigation to the canonical report. +17 tests (241 → 258). | The `duplicate_of` column and the whole AI-1 detection path existed, but **no user could ever see the result**. The feature was invisible end-to-end. |
+| `dc1a037` | Filled `docs/decisions/ADR-001-Authentication.md` — was a 454-byte skeleton with no decisions in it | It claimed a login response shape (`campus_pulse_jwt`) that the code does not produce, using a **banned project name** |
+| `8830644` | Filled `docs/decisions/ADR-002-Database.md`; corrected the stale u23 and status rows in `RLS_POLICIES.md` | It claimed "no RLS SQL written or applied yet" while 32 policies were live, and recorded u23 as deferred when `20260815121000` had implemented it |
+| `b45664b` | `20261005130000_fix_evidence_path_prefix.sql` + filled `STORAGE_DESIGN.md` | Found a **live regression**: the client uploads to `evidence/<report_id>/<file>` but the parser read `foldername()[1]` as the report UUID, so `'evidence'::uuid` **throws**. Evidence upload has been broken since `20260815105000` — see §3. |
+| *(this change)* | `supabase/tests/rls_policy_tests.sql` + §7c + `RLS_POLICIES.md` §7 + `TESTING_STRATEGY.md` §5 | The 32 policies were documentation. This is the first executable check of them — §7c |
+
+**Why the RLS suite was the highest-value thing available.** Everything else in this
+table is a feature or a doc fix. This one closes the gap where the project's headline
+security claim had *no* verification behind it at all: 258 Dart tests all mock the
+repository layer, so nothing ever reached Postgres, and no staff account had ever
+existed in a live database, so the staff policies had never run against real rows.
 
 ---
 
@@ -189,7 +218,7 @@ Invoke-WebRequest -Uri "https://bvxuvkpmpufsbxvpdkht.functions.supabase.co/linwa
 cd flutter_app; flutter run        # Android emulator: see 5.4 before starting
 ```
 
-`flutter analyze` and `flutter test` were both clean at last run (241 tests,
+`flutter analyze` and `flutter test` were both clean at last run (258 tests,
 2026-10-05). A debug APK builds cleanly (~100s).
 
 **Do not run `flutter build` / `flutter doctor` casually** — see §5.4; they can
@@ -359,14 +388,14 @@ material ones:
 | Login returns `{ campus_pulse_jwt, ... }` (`AUTHENTICATION_ARCHITECTURE.md:40`, `LINWAYS_INTEGRATION_ARCHITECTURE.md:100`) | It returns `supabase_session`. "Campus Pulse" is also a **banned project name** (§5.5), so the docs broke their own rule. Both diagrams fixed. |
 | `JWT_AUTH_COMPATIBILITY.md:5` "No implementation" | Fully implemented — its recommended `verifyOtp` runs at `linways-login/index.ts:490-513`. Status header rewritten. |
 | Staff auth is "OUT OF MVP" (`AUTHENTICATION_ARCHITECTURE.md:49` + 2 more) | Implemented at `index.ts:563-608` |
-| `DATABASE_DESIGN.md:4` "14 migration files, not yet applied" | 35 files, 33 applied |
+| `DATABASE_DESIGN.md:4` "14 migration files, not yet applied" | 36 files, 33 applied |
 | `RLS_POLICIES.md:4` "NO RLS SQL written or applied yet" | 32 live policies |
 | `RLS_POLICIES.md:49` u23 "department scoping is deferred" | Implemented in `20260815121000` and cited as locked decision D1 |
 | Docs list 14 tables and 3 priority values | 15 tables (`login_attempts` undocumented), 4 values (`'critical'` added `20260815100000`) |
 
-**`STORAGE_DESIGN.md` is still an empty skeleton** — six empty sections, while the
-whole storage model exists only in migration comments. It is the largest remaining
-doc hole.
+**`STORAGE_DESIGN.md` was an empty skeleton** — six empty sections, while the
+whole storage model existed only in migration comments. It is now filled in, and was
+the largest remaining doc hole.
 
 Do not trust the "DECISIONS LOCKED" / "APPROVED" headers in `docs/architecture/`
 without grepping the claim against the code. That pattern is what produced all seven
@@ -381,6 +410,52 @@ Two real code gaps surfaced and are recorded in `ADR-001` §5:
 - **Staff login is an unauthenticated email oracle** — branch selection is a bare
   `profiles` lookup and the response gives the answer away. Worth fixing before
   demonstrating.
+
+---
+
+## 7c. The RLS policies are now executable, not just documented
+
+**The problem this fixes.** The project's headline security claim is 32 RLS
+policies, and until now nothing in the repo could check it. All 258 Flutter tests
+mock every repository, so no test ever reached Postgres; no staff account had ever
+existed in a live database, so the staff policies had never run against real data.
+Every claim in `RLS_POLICIES.md` rested on a human reading SQL correctly.
+
+**What was added.** `supabase/tests/rls_policy_tests.sql` — ~1080 lines, one
+transaction, pasted into the Supabase SQL Editor. It asserts u1–u23 plus the D1–D10
+lifecycle invariants and prints a pass/fail table. Nothing is persisted: the
+transaction ends in `ROLLBACK`.
+
+It needs no service-role key and no throwaway accounts. It impersonates each user
+with `set local role authenticated` plus `request.jwt.claims`, which is exactly what
+PostgREST does, so `auth.uid()` and `my_role()` resolve as they would in production.
+Fixture `auth.users` rows exist only because `profiles.id` has an FK to them.
+
+**Three design points worth keeping if this file is ever extended:**
+
+1. **"Denied" does not mean "raised an error."** A `WHERE` clause matching only
+   RLS-hidden rows updates **zero** rows and reports *success*. The obvious helper —
+   run the statement, expect an exception — therefore reports `ALLOWED` for a
+   perfectly correct policy and fails the suite. Every "must not change" test instead
+   asserts the resulting **row state** through a `SECURITY DEFINER` probe, which
+   holds whether the statement raised or was silently filtered, and which also
+   catches the dangerous case where it succeeded and did change the row. The first
+   draft of this file had this bug and would have produced four false failures.
+2. **Allowed writes must be undone.** Each write test raises a private marker to
+   unwind its own subtransaction, so a successful insert cannot perturb a later
+   count. The result row is written outside that subtransaction, in the exception
+   handler, which is why it survives.
+3. **Fixture ids must not collide with real data.** `departments.code` is unique and
+   `communities` is `UNIQUE (course_code, batch_year, semester, section)`, so a
+   literal fixture id raises regardless of `ON CONFLICT (id)` — the seeded `GENERAL`
+   department and any real `BCA 2024 S5 C` community already occupy those keys. Both
+   are resolved by key and reused. Everything the suite owns carries the `f1ce0000`
+   prefix and every count filters on it.
+
+**Status: written and statically checked, NOT yet executed.** There is no Supabase
+CLI, `psql` or Docker in this environment, so the SQL has never been run. Paste it
+into the SQL Editor to get the first real result. Expect the possibility of genuine
+failures on first run — that is the value of the exercise, not a defect in it.
 
 ---
 
