@@ -4,6 +4,14 @@
 
 ---
 
+## ⚡ Start here
+
+**[`development/CURRENT_STATE.md`](development/CURRENT_STATE.md)** — read this
+first. Current status of every feature, the open blocker, how to start a
+session, and the gotchas that will bite again.
+
+---
+
 ## Table of Contents
 
 1. [About This Document](#1-about-this-document)
