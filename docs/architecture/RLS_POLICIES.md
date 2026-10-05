@@ -1,9 +1,18 @@
 # Row-Level Security Policies
 
 > RLS policy design for the college project database, enforcing role-based access and community isolation at the database level.
-> **Status: DESIGN FULLY APPROVED (decisions u1–u23) — NO RLS SQL written or applied yet.**
-> **Dependencies cleared:** u22 (JWT/auth) approved via `docs/architecture/JWT_AUTH_COMPATIBILITY.md` — identity model `auth.users.id = profiles.id = auth.uid()`, native Supabase Auth sessions. u7 approved via `docs/architecture/REPORT_LIFECYCLE.md` (D1–D9 + amended matrix).
-> **Next step:** RLS SQL generation + migration — pending explicit authorization.
+> ⚠️ **Status: IMPLEMENTED — this document describes the design; the SQL is applied.**
+> Its header previously read "NO RLS SQL written or applied yet" and `:232` repeated it.
+> In fact `20260811103300_rls_security.sql` defines 28 policies and 25 helpers,
+> `20260811103400_server_generated_events.sql` adds the audit triggers, and
+> `20260815125000_security_hardening.sql` closes the EXECUTE grants. There are 32 live
+> policies across 15 tables plus Storage.
+> **Read `docs/decisions/ADR-002-Database.md` for the schema and security model as
+> built.** Two rows below are wrong as written — u23 and the u2/u10 grants — and are
+> marked inline.
+> **Dependencies cleared:** u22 via `docs/architecture/JWT_AUTH_COMPATIBILITY.md`;
+> u7 via `docs/architecture/REPORT_LIFECYCLE.md` (D1–D10 + amended matrix). Note the
+> lifecycle is D1–D10, not D1–D9; D10 is the removed `pending → resolved` transition.
 
 ---
 
@@ -46,7 +55,7 @@ All rows below are APPROVED by the project owner (2026-08). u22 and u7 are resol
 | u20 | Authenticated users may read `departments` as reference data. | ✅ Approved |
 | u21 | `category_routes` are visible only to staff. | ✅ Approved |
 | u22 | JWT/auth compatibility with Supabase RLS — NOT assumed; under investigation. | ✅ Approved — native Supabase Auth sessions (`JWT_AUTH_COMPATIBILITY.md`); `auth.users.id = profiles.id = auth.uid()` |
-| u23 | Staff department-specific scoping is deferred. MVP staff visibility uses category routing + assignments. | ✅ Approved |
+| u23 | ~~Staff department-specific scoping is deferred. MVP staff visibility uses category routing + assignments.~~ **SUPERSEDED — scoping IS implemented.** `20260815121000_staff_department_scope.sql:43-52` redefines `report_visible_to_staff` to require `p.department_id = r.department_id` on the routing branch, and cites locked decision D1 of `PANEL_SYSTEM.md`. Consequence: staff with `department_id IS NULL` see **only assigned reports**, not category-routed ones. | ⚠️ Superseded — see ADR-002 §5.3 |
 
 ---
 
@@ -101,7 +110,7 @@ Legend: **S**=student, **H**=hod, **T**=technician, **O**=operations, **A**=admi
 | Op | Who | Rule |
 |---|---|---|
 | SELECT | S | `(community_id = my_community_id OR reporter_id = me) AND deleted_at IS NULL` — u1 allows own historical reports; u2 keeps deleted reports invisible to students |
-| SELECT | H, T, O | routed/assigned — **including soft-deleted** (u2); u23: no department scoping |
+| SELECT | H, T, O | routed/assigned — **including soft-deleted** (u2); **plus department scoping (u23 superseded)** — `20260815121000` |
 | SELECT | A | all, including soft-deleted |
 | INSERT | S | `reporter_id = me AND community_id = my_community_id AND status = 'pending' AND deleted_at IS NULL AND ai_confidence IS NULL AND duplicate_of IS NULL`; `report_type` = community only (u3); `priority` chosen by student, AI must not silently overwrite (u4) |
 | INSERT | H, T, O | **DENY** (u5 — staff cannot create reports in MVP) |
@@ -226,7 +235,11 @@ Legend: **S**=student, **H**=hod, **T**=technician, **O**=operations, **A**=admi
 
 ## 6. Implementation Order (pending explicit authorization)
 
-1. Generate the RLS migration: helper functions (`SECURITY DEFINER` role/membership + transition validation) → `enable row level security` on all 14 tables → policies per the matrix above → column-grant whitelists (`profiles` role immutability, `notifications.read`).
-2. Apply via the established preflight flow: `migration list --linked` → `db push --dry-run` → `db push --linked` → verify `migration list --linked`.
+1. ~~Generate the RLS migration~~ — **done**, `20260811103300_rls_security.sql`.
+2. ~~Apply via the established preflight flow~~ — **partly done**: 33 of 35 migrations
+   were applied by hand through the SQL Editor (no Supabase CLI in this environment),
+   so the `migration list --linked` / `db push` flow in this section was never used.
+   `20261005120000` (staff seed) and `20261005123000` (AI-1) remain unapplied.
 
-*No RLS SQL has been written or applied. Documentation only.*
+*This document is the design record. The applied SQL is the source of truth — see
+`docs/decisions/ADR-002-Database.md` §1.1 for the full list of divergences.*

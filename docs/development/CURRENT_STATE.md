@@ -279,7 +279,6 @@ Now written:
 | AI-0 | `docs/decisions/ADR-003-AI.md` — **filled** (was 0 lines of prose) | Done |
 | AI-1 | `20261005123000_ai1_duplicate_detection.sql` — `pg_trgm` duplicate detection | Written, **never applied** |
 | AI-2+ | Edge Function, dataset, TF-IDF, priority | ⬜ Not started |
-
 **AI-1 is the whole first slice: `pg_trgm` similarity in an `AFTER INSERT`
 trigger.** No model, no dataset, no Edge Function, no Python. It exercises the
 entire DB contract that already existed (`duplicate_of`, `ai_confidence`,
@@ -324,10 +323,49 @@ Also still open: the `0.85` threshold is a **guess, not measured** (ADR-003
 - **Run `20261005123000_ai1_duplicate_detection.sql`** — written, never executed.
   Until it runs, the duplicate notice is dead UI.
 - Run the §3.1 type query — blocks the evidence upload fix
-- Staff-facing duplicate hint — `duplicate_of` is written but shown nowhere
 - AI-2+ (Edge Function, dataset, classification, priority)
 - Install the Supabase CLI — every migration is currently hand-applied
 - Real checkpoint doc for this phase (this file serves as it for now)
+
+---
+
+## 7b. Documentation audit — the ADRs were empty and the docs had drifted
+
+All five ADRs are now filled. `ADR-001` and `ADR-002` were **454- and 433-byte
+skeletons**: a Table of Contents, five empty sections, and no decisions at all. The
+three other ADRs already had content.
+
+Writing them required deciding what was actually true, because reading the
+architecture drafts against the code produced a long list of contradictions. The
+material ones:
+
+| Claim in the docs | Reality |
+|---|---|
+| Login returns `{ campus_pulse_jwt, ... }` (`AUTHENTICATION_ARCHITECTURE.md:40`, `LINWAYS_INTEGRATION_ARCHITECTURE.md:100`) | It returns `supabase_session`. "Campus Pulse" is also a **banned project name** (§5.5), so the docs broke their own rule. Both diagrams fixed. |
+| `JWT_AUTH_COMPATIBILITY.md:5` "No implementation" | Fully implemented — its recommended `verifyOtp` runs at `linways-login/index.ts:490-513`. Status header rewritten. |
+| Staff auth is "OUT OF MVP" (`AUTHENTICATION_ARCHITECTURE.md:49` + 2 more) | Implemented at `index.ts:563-608` |
+| `DATABASE_DESIGN.md:4` "14 migration files, not yet applied" | 35 files, 33 applied |
+| `RLS_POLICIES.md:4` "NO RLS SQL written or applied yet" | 32 live policies |
+| `RLS_POLICIES.md:49` u23 "department scoping is deferred" | Implemented in `20260815121000` and cited as locked decision D1 |
+| Docs list 14 tables and 3 priority values | 15 tables (`login_attempts` undocumented), 4 values (`'critical'` added `20260815100000`) |
+
+**`STORAGE_DESIGN.md` is still an empty skeleton** — six empty sections, while the
+whole storage model exists only in migration comments. It is the largest remaining
+doc hole.
+
+Do not trust the "DECISIONS LOCKED" / "APPROVED" headers in `docs/architecture/`
+without grepping the claim against the code. That pattern is what produced all seven
+rows above. `DATABASE_DESIGN.md`, `AUTHENTICATION_ARCHITECTURE.md`,
+`LINWAYS_INTEGRATION_ARCHITECTURE.md`, `RLS_POLICIES.md`, `JWT_AUTH_COMPATIBILITY.md`
+and `ADR-004` now each carry a superseding banner naming the specific false claims.
+
+Two real code gaps surfaced and are recorded in `ADR-001` §5:
+
+- `admin.updateUserById` is specified but never called, so Linways email/name changes
+  reach `profiles` but never `auth.users`.
+- **Staff login is an unauthenticated email oracle** — branch selection is a bare
+  `profiles` lookup and the response gives the answer away. Worth fixing before
+  demonstrating.
 
 ---
 
