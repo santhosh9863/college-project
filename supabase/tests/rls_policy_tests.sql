@@ -1,5 +1,11 @@
 -- =============================================================================
 -- RLS policy test suite - requirements u1..u23 and the lifecycle invariants.
+--
+-- COVERAGE, STATED HONESTLY
+--   u1..u23 are all asserted. Of the REPORT_LIFECYCLE.md decisions, this file
+--   asserts D1, D3, D5, D6, D8 and D10. It does NOT yet assert D2, D4, D7 or
+--   D9 - see docs/development/TESTING_STRATEGY.md for exactly what each of those
+--   still needs. Do not describe this file as full D1-D10 evidence.
 -- =============================================================================
 --
 -- WHY THIS EXISTS
@@ -11,9 +17,15 @@
 --
 -- HOW TO RUN
 --   Paste the whole file into the Supabase SQL Editor and Run. It prints a
---   pass/fail table. Nothing is left behind: every statement runs in one
---   transaction that is ROLLBACK'd, so the fixtures, the results table and the
---   helper functions all disappear.
+--   pass/fail table, then a one-row summary. Click "Run without RLS" if the
+--   editor asks - the only table it creates is a scratch results table that the
+--   script drops again.
+--
+--   Nothing is left behind. The script deletes its own fixtures explicitly,
+--   before AND after the assertions, so an aborted run can never pollute your
+--   database and re-running is always safe. The final ROLLBACK is just belt and
+--   braces for the case where the editor really does keep one transaction open
+--   for the whole script.
 --
 -- HOW IT IMPERSONATES A USER
 --   There is no Supabase CLI here and no service-role key in the app, and
@@ -88,19 +100,92 @@
 --   means the fixture itself is wrong, so fix that first and re-run.
 -- =============================================================================
 
-begin;
+-- =============================================================================
+-- 0.0 Make the script self-healing and re-runnable.
+--
+--      Two hard-won lessons from running this in the Supabase SQL Editor:
+--
+--      a) `pg_temp` is UNUSABLE here. `create function pg_temp.x(...)` is
+--         rejected with `3F000: schema "pg_temp" does not exist` even after a
+--         temporary table has been created in the same session, because the
+--         editor resolves the schema name differently from the way a plain
+--         interactive psql session does. The helpers therefore live in an
+--         ordinary, explicitly created and explicitly dropped schema instead.
+--
+--      b) Never rely on the final ROLLBACK alone. If the editor aborts the
+--         script part-way through (which is exactly what happens on any error),
+--         whatever was already executed may be left behind. So this script
+--         cleans up after itself explicitly in two places: here, before doing
+--         anything, and again at the very end. That makes it safe to re-run and
+--         means a crash can never leave fixtures in your database.
+--
+--      Everything deleted here is either prefixed `f1ce0000-`, or has an
+--      `@rls-test.local` email, so this cannot touch real data.
+-- =============================================================================
+
+-- Defensive re-run cleanup: remove anything a previous aborted run left behind.
+drop table if exists public.rls_test_results;
+drop schema if exists f1ce_rls cascade;
+
+do $f1ce_cleanup$
+begin
+  -- Trigger-written rows first (report_activity / notifications reference both
+  -- fixture reports and fixture profiles, and can point at REAL staff profiles).
+  delete from public.report_activity
+   where report_id::text like 'f1ce0000-%'
+      or actor_id::text  like 'f1ce0000-%';
+
+  delete from public.notifications
+   where user_id::text     like 'f1ce0000-%'
+      or reference_id::text like 'f1ce0000-%';
+
+  delete from public.ai_classification_log
+   where report_id::text like 'f1ce0000-%';
+
+  delete from public.evidence_files  where uploaded_by::text like 'f1ce0000-%';
+  delete from public.report_comments  where author_id::text     like 'f1ce0000-%';
+  delete from public.report_supports  where supporter_id::text   like 'f1ce0000-%';
+
+  delete from public.report_assignments
+   where assigned_to::text like 'f1ce0000-%'
+      or assigned_by::text like 'f1ce0000-%';
+
+  delete from public.reports where id::text like 'f1ce0000-%';
+
+  delete from public.community_members where profile_id::text like 'f1ce0000-%';
+
+  delete from auth.identities
+   where user_id::text like 'f1ce0000-%'
+      or provider_id like '%rls-test.local%';
+
+  -- profiles references auth.users, so it must go first.
+  delete from public.profiles where id::text like 'f1ce0000-%';
+  delete from auth.users     where email like '%@rls-test.local';
+end
+$f1ce_cleanup$;
 
 -- =============================================================================
--- 0. Results plumbing and helpers.
+-- 1. Results plumbing and helpers.
 --    A real table rather than TEMP so the authenticated role can be granted
---    INSERT explicitly. It exists only until the ROLLBACK at the end.
+--    INSERT explicitly. Both it and the helper schema are dropped explicitly.
 -- =============================================================================
+
+begin;
+
+create schema if not exists f1ce_rls;
+
 create table public.rls_test_results (
   id serial primary key,
   requirement text not null,
   expectation text not null,
   expected text not null,
-  actual text not null
+  actual text not null,
+  -- Why a statement was rejected. The pass/fail verdict deliberately stays
+  -- probe-driven, so this rides alongside it instead of being folded into
+  -- `actual` (which would corrupt the comparison). Without it a failure says
+  -- only "rejected by error", which is not enough to tell an RLS denial from a
+  -- missing column grant, a trigger fault or a constraint violation.
+  error_detail text
 );
 
 grant insert on public.rls_test_results to authenticated;
@@ -112,7 +197,7 @@ grant select on public.rls_test_results to authenticated;
 grant usage on sequence public.rls_test_results_id_seq to authenticated;
 
 -- Read a row state as the table owner, bypassing RLS, for use as a probe.
-create function pg_temp.f1ce_probe(p_sql text)
+create function f1ce_rls.f1ce_probe(p_sql text)
 returns text
 language plpgsql
 security definer
@@ -129,7 +214,7 @@ $$;
 -- Resolve the fixture department and communities by their natural keys so the
 -- suite reuses whatever already exists instead of colliding with it. SECURITY
 -- DEFINER so the lookup cannot be filtered by the very policies under test.
-create function pg_temp.f1ce_dept()
+create function f1ce_rls.f1ce_dept()
 returns uuid
 language sql
 stable
@@ -139,7 +224,7 @@ as $$
   select id from public.departments where code = 'GENERAL' limit 1
 $$;
 
-create function pg_temp.f1ce_community(p_semester text)
+create function f1ce_rls.f1ce_community(p_semester text)
 returns uuid
 language sql
 stable
@@ -157,18 +242,21 @@ $$;
 
 -- Expect the statement to be rejected with an error. Only correct where the
 -- policy is enforced by WITH CHECK or where a privilege is missing.
-create function pg_temp.rls_denied(p_req text, p_what text, p_sql text)
+create function f1ce_rls.rls_denied(p_req text, p_what text, p_sql text)
 returns void
 language plpgsql
 as $$
+declare
+  v_err text;
 begin
   begin
     execute p_sql;
     insert into public.rls_test_results (requirement, expectation, expected, actual)
     values (p_req, p_what, 'denied', 'ALLOWED - POLICY IS TOO LOOSE');
   exception when others then
-    insert into public.rls_test_results (requirement, expectation, expected, actual)
-    values (p_req, p_what, 'denied', 'denied');
+    v_err := left(sqlerrm, 200);
+    insert into public.rls_test_results (requirement, expectation, expected, actual, error_detail)
+    values (p_req, p_what, 'denied', 'denied', v_err);
   end;
 end;
 $$;
@@ -179,7 +267,7 @@ $$;
 --   'pending' for an update that must not have changed anything. There is no
 --   separate "allowed"/"denied" expectation: the probe decides, which is the
 --   whole point.
-create function pg_temp.rls_effect(
+create function f1ce_rls.rls_effect(
   p_req text,
   p_what text,
   p_sql text,
@@ -192,6 +280,7 @@ as $$
 declare
   v_verdict text;
   v_seen text;
+  v_err text := null;
   v_marker constant text := 'rls_test_undo_marker';
 begin
   v_verdict := null;
@@ -200,11 +289,14 @@ begin
       execute p_sql;
     exception when others then
       -- Rejected outright. Whatever the reason, nothing changed; the probe
-      -- below confirms that rather than trusting the error.
+      -- below confirms that rather than trusting the error. The reason itself is
+      -- kept, because "rejected by error" on its own cannot distinguish a
+      -- correct RLS denial from an unrelated fault such as a trigger error.
       v_verdict := 'rejected by error';
+      v_err := left(sqlerrm, 200);
     end;
 
-    v_seen := pg_temp.f1ce_probe(p_probe);
+    v_seen := f1ce_rls.f1ce_probe(p_probe);
 
     if v_seen = p_expected_after then
       if v_verdict = 'rejected by error' then
@@ -222,18 +314,40 @@ begin
   exception when others then
     if sqlerrm <> v_marker then
       v_verdict := 'HARNESS ERROR: ' || left(sqlerrm, 120);
+      v_err := left(sqlerrm, 200);
     end if;
   end;
 
-  insert into public.rls_test_results (requirement, expectation, expected, actual)
-  values (p_req, p_what, p_expected_after, v_verdict);
+  insert into public.rls_test_results (requirement, expectation, expected, actual, error_detail)
+  values (p_req, p_what, p_expected_after, v_verdict, v_err);
 end;
 $$;
 
--- `set local role authenticated` changes current_user but not session_user, so
--- the session's temp namespace still resolves; granting USAGE explicitly keeps
--- the helpers callable as the impersonated role.
-grant usage on schema pg_temp to authenticated;
+-- The helpers are called while impersonating `authenticated`, which needs USAGE
+-- on the schema to resolve them. EXECUTE is granted to PUBLIC by default.
+grant usage on schema f1ce_rls to authenticated;
+
+-- Single definition of "did this assertion pass?", so the per-row report and the
+-- summary can never drift apart.
+--
+-- Two shapes of result land in rls_test_results:
+--   * state probes (`rls_effect`) return a verdict such as
+--     'rejected (state unchanged, as required)', which deliberately does NOT
+--     equal its `expected` label of 'rejected by RLS';
+--   * direct assertions (row counts, lifecycle booleans, `rls_denied`) return
+--     a bare value that DOES equal `expected`.
+-- So a row passes on either condition. Matching only the verdict strings would
+-- mark every direct assertion FAIL, and matching only equality would mark every
+-- probe FAIL.
+create function f1ce_rls.is_pass(p_expected text, p_actual text)
+returns boolean
+language sql
+immutable
+as $f1ce_pass$
+  select p_expected = p_actual
+      or p_actual like '%(state is as required)%'
+      or p_actual like '%(state unchanged, as required)%'
+$f1ce_pass$;
 
 -- =============================================================================
 -- 1. Fixtures. Runs as postgres (superuser, RLS bypassed).
@@ -335,7 +449,7 @@ select
   u.email,
   u.raw_user_meta_data ->> 'full_name',
   f.role::public.user_role,
-  pg_temp.f1ce_dept(),
+  f1ce_rls.f1ce_dept(),
   case when f.role = 'student' then split_part(u.email, '@', 1) else null end
 from auth.users u
 join (values
@@ -354,7 +468,7 @@ where u.email like '%@rls-test.local';
 --     Staff have none: their scope is role + routing + assignment, never
 --     community.
 insert into public.community_members (community_id, profile_id, is_active, joined_at)
-select pg_temp.f1ce_community('5'), v.id, true, now()
+select f1ce_rls.f1ce_community('5'), v.id, true, now()
 from (values
   ('f1ce0000-0000-4000-8000-000000000001'::uuid),
   ('f1ce0000-0000-4000-8000-000000000002'::uuid),
@@ -362,7 +476,7 @@ from (values
 ) as v(id);
 
 insert into public.community_members (community_id, profile_id, is_active, joined_at)
-values (pg_temp.f1ce_community('6'),
+values (f1ce_rls.f1ce_community('6'),
         'f1ce0000-0000-4000-8000-000000000003', true, now());
 
 -- 1.4 Reports. Titles are deliberately dissimilar so AI-1's trigram scoring
@@ -394,10 +508,10 @@ select
   (select id from public.categories where name = f.category_name limit 1),
   'medium',
   f.status::public.report_status,
-  pg_temp.f1ce_dept(),
+  f1ce_rls.f1ce_dept(),
   5,
   'C',
-  pg_temp.f1ce_community(f.semester_key),
+  f1ce_rls.f1ce_community(f.semester_key),
   f.deleted_at
 from (values
   ('f1ce0000-0000-4000-8000-000000000020'::uuid, 'f1ce0000-0000-4000-8000-000000000001'::uuid,
@@ -466,18 +580,18 @@ values ('f1ce0000-0000-4000-8000-000000000002', 'fixture', 'fixture', 'status_ch
 -- =============================================================================
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'sanity', 'the GENERAL department resolves', 'f1ce0000',
-       case when pg_temp.f1ce_dept() is null then 'MISSING' else 'f1ce0000' end;
+       case when f1ce_rls.f1ce_dept() is null then 'MISSING' else 'f1ce0000' end;
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'sanity', 'both fixture communities resolve', 'f1ce0000,f1ce0000',
-       case when pg_temp.f1ce_community('5') is null then 'S5 MISSING' else 'f1ce0000' end
+       case when f1ce_rls.f1ce_community('5') is null then 'S5 MISSING' else 'f1ce0000' end
        || ',' ||
-       case when pg_temp.f1ce_community('6') is null then 'S6 MISSING' else 'f1ce0000' end;
+       case when f1ce_rls.f1ce_community('6') is null then 'S6 MISSING' else 'f1ce0000' end;
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'sanity', 'the two fixture communities are different rows', '2',
        count(distinct id)::text from public.communities
- where id in (pg_temp.f1ce_community('5'), pg_temp.f1ce_community('6'));
+ where id in (f1ce_rls.f1ce_community('5'), f1ce_rls.f1ce_community('6'));
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'sanity', '8 fixture reports exist', '8',
@@ -490,7 +604,7 @@ select 'sanity', '8 fixture profiles exist', '8',
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'sanity', 'every fixture profile carries the routing department', '8',
        count(*)::text from public.profiles
- where id::text like 'f1ce0000-%' and department_id = pg_temp.f1ce_dept();
+ where id::text like 'f1ce0000-%' and department_id = f1ce_rls.f1ce_dept();
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'sanity', 'exactly one Academic category (categories.name is not unique)', '1',
@@ -557,12 +671,12 @@ select 'u22', 'alice my_role() resolves to student', 'student', public.my_role()
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'u22', 'alice my_community_id() resolves to community A',
-       pg_temp.f1ce_community('5')::text, public.my_community_id()::text;
+       f1ce_rls.f1ce_community('5')::text, public.my_community_id()::text;
 
 -- u20 / u21.
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'u20', 'alice can read departments', '1',
-       (select count(*)::text from public.departments where id = pg_temp.f1ce_dept());
+       (select count(*)::text from public.departments where id = f1ce_rls.f1ce_dept());
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'u21', 'alice cannot read category_routes', '0',
@@ -574,11 +688,11 @@ select 'profiles', 'alice sees only her own profile row', '1',
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'communities', 'alice sees her own community', '1',
-       (select count(*)::text from public.communities where id = pg_temp.f1ce_community('5'));
+       (select count(*)::text from public.communities where id = f1ce_rls.f1ce_community('5'));
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'communities', 'alice cannot see community B', '0',
-       (select count(*)::text from public.communities where id = pg_temp.f1ce_community('6'));
+       (select count(*)::text from public.communities where id = f1ce_rls.f1ce_community('6'));
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'community_members', 'alice sees only her own membership', '1',
@@ -589,50 +703,50 @@ select 'u16', 'alice sees the 1 evidence row on her own report', '1',
        count(*)::text from public.evidence_files;
 
 -- u3.
-select pg_temp.rls_effect('u3', 'alice may create a report in her own community', $q$
+select f1ce_rls.rls_effect('u3', 'alice may create a report in her own community', $q$
   insert into public.reports (reporter_id, report_type, title, description, category_id,
     priority, status, department_id, community_id)
   values (auth.uid(), 'community', 'fixture new complaint', 'd',
           (select id from public.categories where name = 'Academic' limit 1),
-          'low', 'pending', pg_temp.f1ce_dept(),
-          pg_temp.f1ce_community('5'))
+          'low', 'pending', f1ce_rls.f1ce_dept(),
+          f1ce_rls.f1ce_community('5'))
 $q$,
   $q$select count(*)::text from public.reports where title = 'fixture new complaint'$q$, '1');
 
 -- Cross-community creation is refused by WITH CHECK, so it genuinely raises.
-select pg_temp.rls_denied('u3', 'alice cannot create a report in community B', $q$
+select f1ce_rls.rls_denied('u3', 'alice cannot create a report in community B', $q$
   insert into public.reports (reporter_id, report_type, title, description, category_id,
     priority, status, department_id, community_id)
   values (auth.uid(), 'community', 'fixture cross community', 'd',
           (select id from public.categories where name = 'Academic' limit 1),
-          'low', 'pending', pg_temp.f1ce_dept(),
-          pg_temp.f1ce_community('6'))
+          'low', 'pending', f1ce_rls.f1ce_dept(),
+          f1ce_rls.f1ce_community('6'))
 $q$);
 
 -- u4: a student may not pre-set the AI fields, which is what forces AI-1's
 -- trigger to run AFTER INSERT.
-select pg_temp.rls_denied('u4', 'alice cannot set duplicate_of on insert', $q$
+select f1ce_rls.rls_denied('u4', 'alice cannot set duplicate_of on insert', $q$
   insert into public.reports (reporter_id, report_type, title, description, category_id,
     priority, status, department_id, community_id, duplicate_of)
   values (auth.uid(), 'community', 'fixture dup', 'd',
           (select id from public.categories where name = 'Academic' limit 1),
-          'low', 'pending', pg_temp.f1ce_dept(),
-          pg_temp.f1ce_community('5'),
+          'low', 'pending', f1ce_rls.f1ce_dept(),
+          f1ce_rls.f1ce_community('5'),
           'f1ce0000-0000-4000-8000-000000000020')
 $q$);
 
-select pg_temp.rls_denied('u4', 'alice cannot set ai_confidence on insert', $q$
+select f1ce_rls.rls_denied('u4', 'alice cannot set ai_confidence on insert', $q$
   insert into public.reports (reporter_id, report_type, title, description, category_id,
     priority, status, department_id, community_id, ai_confidence)
   values (auth.uid(), 'community', 'fixture ai', 'd',
           (select id from public.categories where name = 'Academic' limit 1),
-          'low', 'pending', pg_temp.f1ce_dept(),
-          pg_temp.f1ce_community('5'), 0.99)
+          'low', 'pending', f1ce_rls.f1ce_dept(),
+          f1ce_rls.f1ce_community('5'), 0.99)
 $q$);
 
 -- u6: no status changes by a student. ...21 is invisible to alice, so RLS filters
 -- it out of the UPDATE silently and never raises - hence the probe.
-select pg_temp.rls_effect('u6', 'alice cannot change a report''s status', $q$
+select f1ce_rls.rls_effect('u6', 'alice cannot change a report''s status', $q$
   update public.reports set status = 'closed'
   where id = 'f1ce0000-0000-4000-8000-000000000021'
 $q$,
@@ -640,14 +754,14 @@ $q$,
   'pending');
 
 -- u8: soft-delete her own pending report is allowed; someone else's is not.
-select pg_temp.rls_effect('u8', 'alice may soft-delete her own pending report', $q$
+select f1ce_rls.rls_effect('u8', 'alice may soft-delete her own pending report', $q$
   update public.reports set deleted_at = now()
   where id = 'f1ce0000-0000-4000-8000-000000000020'
 $q$,
   $q$select (deleted_at is not null)::text from public.reports where id = 'f1ce0000-0000-4000-8000-000000000020'$q$,
   'true');
 
-select pg_temp.rls_effect('u8', 'alice cannot soft-delete bob''s report', $q$
+select f1ce_rls.rls_effect('u8', 'alice cannot soft-delete bob''s report', $q$
   update public.reports set deleted_at = now()
   where id = 'f1ce0000-0000-4000-8000-000000000022'
 $q$,
@@ -655,13 +769,13 @@ $q$,
   'false');
 
 -- u10: not your own report. ...20 is alice's own pending report.
-select pg_temp.rls_denied('u10', 'alice cannot support her own report', $q$
+select f1ce_rls.rls_denied('u10', 'alice cannot support her own report', $q$
   insert into public.report_supports (report_id, supporter_id)
   values ('f1ce0000-0000-4000-8000-000000000020', auth.uid())
 $q$);
 
 -- ...22 is bob's, open, in alice's community, and not yet supported by her.
-select pg_temp.rls_effect('u10', 'alice may support bob''s open report', $q$
+select f1ce_rls.rls_effect('u10', 'alice may support bob''s open report', $q$
   insert into public.report_supports (report_id, supporter_id)
   values ('f1ce0000-0000-4000-8000-000000000022', auth.uid())
 $q$,
@@ -670,13 +784,13 @@ $q$,
 
 -- u11 in isolation: ...25 is CLOSED, belongs to bob, not deleted, same community.
 -- Only the status in ('pending','under_review','in_progress') clause can deny this.
-select pg_temp.rls_denied('u11', 'alice cannot support a closed report', $q$
+select f1ce_rls.rls_denied('u11', 'alice cannot support a closed report', $q$
   insert into public.report_supports (report_id, supporter_id)
   values ('f1ce0000-0000-4000-8000-000000000025', auth.uid())
 $q$);
 
 -- u13: withdrawing the support seeded in 1.6.
-select pg_temp.rls_effect('u13', 'alice may withdraw her own support', $q$
+select f1ce_rls.rls_effect('u13', 'alice may withdraw her own support', $q$
   delete from public.report_supports
   where report_id = 'f1ce0000-0000-4000-8000-000000000021'
     and supporter_id = 'f1ce0000-0000-4000-8000-000000000001'
@@ -685,39 +799,39 @@ $q$,
     where report_id = 'f1ce0000-0000-4000-8000-000000000021'$q$, '0');
 
 -- u14.
-select pg_temp.rls_effect('u14', 'alice may comment on a visible report', $q$
+select f1ce_rls.rls_effect('u14', 'alice may comment on a visible report', $q$
   insert into public.report_comments (report_id, author_id, message)
   values ('f1ce0000-0000-4000-8000-000000000020', auth.uid(), 'fixture comment')
 $q$,
   $q$select count(*)::text from public.report_comments where message = 'fixture comment'$q$, '1');
 
-select pg_temp.rls_denied('u14', 'alice may not edit a comment (no UPDATE privilege)', $q$
+select f1ce_rls.rls_denied('u14', 'alice may not edit a comment (no UPDATE privilege)', $q$
   update public.report_comments set message = 'edited'
   where id = (select id from public.report_comments where id::text like 'f1ce0000-%' limit 1)
 $q$);
 
 -- u15: report_activity is server-written only.
-select pg_temp.rls_denied('u15', 'alice cannot insert into report_activity', $q$
+select f1ce_rls.rls_denied('u15', 'alice cannot insert into report_activity', $q$
   insert into public.report_activity (report_id, actor_id, activity_type, metadata)
   values ('f1ce0000-0000-4000-8000-000000000020', auth.uid(), 'created', '{}'::jsonb)
 $q$);
 
 -- u16: evidence metadata only on her own report.
-select pg_temp.rls_effect('u16', 'alice may attach evidence to her own report', $q$
+select f1ce_rls.rls_effect('u16', 'alice may attach evidence to her own report', $q$
   insert into public.evidence_files (report_id, file_url, file_type, uploaded_by)
   values ('f1ce0000-0000-4000-8000-000000000020', 'fixture/second.png', 'image/png', auth.uid())
 $q$,
   $q$select count(*)::text from public.evidence_files
     where report_id = 'f1ce0000-0000-4000-8000-000000000020'$q$, '2');
 
-select pg_temp.rls_denied('u16', 'alice cannot attach evidence to bob''s report', $q$
+select f1ce_rls.rls_denied('u16', 'alice cannot attach evidence to bob''s report', $q$
   insert into public.evidence_files (report_id, file_url, file_type, uploaded_by)
   values ('f1ce0000-0000-4000-8000-000000000022', 'fixture/other.png', 'image/png', auth.uid())
 $q$);
 
 -- u17: evidence deletion is admin-only. There IS a fixture row here, so a
 -- successful delete would be observable - the assertion is not vacuous.
-select pg_temp.rls_effect('u17', 'alice cannot delete evidence', $q$
+select f1ce_rls.rls_effect('u17', 'alice cannot delete evidence', $q$
   delete from public.evidence_files
   where report_id = 'f1ce0000-0000-4000-8000-000000000020'
 $q$,
@@ -781,17 +895,28 @@ set local role authenticated;
 set local request.jwt.claim.sub = 'f1ce0000-0000-4000-8000-000000000003';
 set local request.jwt.claims = '{"sub":"f1ce0000-0000-4000-8000-000000000003","role":"authenticated"}';
 
+-- Community B deliberately holds TWO reports: ...27 (carol's own) and ...24
+-- (alice's historical report from community B, which u1 asserts alice can still
+-- see via the reporter branch). Community isolation is per COMMUNITY, not per
+-- person, so carol correctly sees both. An earlier version of this test expected
+-- 1 and was simply wrong.
 insert into public.rls_test_results (requirement, expectation, expected, actual)
-select 'u1', 'carol sees exactly 1 report in her own community', '1',
+select 'u1', 'carol sees both reports in her own community B (...24 + ...27)', '2',
        count(*)::text from public.reports where id::text like 'f1ce0000-%';
+
+-- ...and the isolation claim that actually matters: nothing from community A.
+insert into public.rls_test_results (requirement, expectation, expected, actual)
+select 'u1', 'carol sees no report from community A (...21 bob''s)', '0',
+       (select count(*)::text from public.reports
+         where id = 'f1ce0000-0000-4000-8000-000000000021');
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'communities', 'carol sees her own community', '1',
-       (select count(*)::text from public.communities where id = pg_temp.f1ce_community('6'));
+       (select count(*)::text from public.communities where id = f1ce_rls.f1ce_community('6'));
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'communities', 'carol cannot see community A', '0',
-       (select count(*)::text from public.communities where id = pg_temp.f1ce_community('5'));
+       (select count(*)::text from public.communities where id = f1ce_rls.f1ce_community('5'));
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'community_members', 'carol sees only her own membership', '1',
@@ -827,7 +952,7 @@ select 'u2', 'hod sees another community''s report (staff are not community-scop
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'communities', 'hod sees both fixture communities (staff see all)', '2',
        (select count(*)::text from public.communities
-        where id in (pg_temp.f1ce_community('5'), pg_temp.f1ce_community('6')));
+        where id in (f1ce_rls.f1ce_community('5'), f1ce_rls.f1ce_community('6')));
 
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'u21', 'hod CAN read category_routes', '1',
@@ -838,23 +963,23 @@ select 'profiles', 'hod sees only his own profile (all-profiles is admin only)',
        count(*)::text from public.profiles;
 
 -- u5: staff may not create reports.
-select pg_temp.rls_denied('u5', 'hod cannot create a report', $q$
+select f1ce_rls.rls_denied('u5', 'hod cannot create a report', $q$
   insert into public.reports (reporter_id, report_type, title, description, category_id,
     priority, status, department_id, community_id)
   values (auth.uid(), 'community', 'fixture staff report', 'd',
           (select id from public.categories where name = 'Academic' limit 1),
-          'low', 'pending', pg_temp.f1ce_dept(),
-          pg_temp.f1ce_community('5'))
+          'low', 'pending', f1ce_rls.f1ce_dept(),
+          f1ce_rls.f1ce_community('5'))
 $q$);
 
 -- u12: the insert policy requires my_role() = 'student'.
-select pg_temp.rls_denied('u12', 'hod cannot support a report', $q$
+select f1ce_rls.rls_denied('u12', 'hod cannot support a report', $q$
   insert into public.report_supports (report_id, supporter_id)
   values ('f1ce0000-0000-4000-8000-000000000020', auth.uid())
 $q$);
 
 -- u9: only operations/admin may assign.
-select pg_temp.rls_denied('u9', 'hod cannot assign a report', $q$
+select f1ce_rls.rls_denied('u9', 'hod cannot assign a report', $q$
   insert into public.report_assignments (report_id, assigned_to, assigned_by, active)
   values ('f1ce0000-0000-4000-8000-000000000021', auth.uid(), auth.uid(), true)
 $q$);
@@ -956,7 +1081,7 @@ select 'u9', 'operations sees the 2 assignments it was given', '2',
        count(*)::text from public.report_assignments where assigned_to = auth.uid();
 
 -- u9: operations may assign. ...21 has no assignment yet.
-select pg_temp.rls_effect('u9', 'operations may assign a report', $q$
+select f1ce_rls.rls_effect('u9', 'operations may assign a report', $q$
   insert into public.report_assignments (report_id, assigned_to, assigned_by, active)
   values ('f1ce0000-0000-4000-8000-000000000021', auth.uid(), auth.uid(), true)
 $q$,
@@ -964,7 +1089,7 @@ $q$,
     where report_id = 'f1ce0000-0000-4000-8000-000000000021' and active$q$, '1');
 
 -- u9 / F6: the target must be a staff member.
-select pg_temp.rls_denied('u9/F6', 'operations cannot assign a report to a student', $q$
+select f1ce_rls.rls_denied('u9/F6', 'operations cannot assign a report to a student', $q$
   insert into public.report_assignments (report_id, assigned_to, assigned_by, active)
   values ('f1ce0000-0000-4000-8000-000000000022',
           'f1ce0000-0000-4000-8000-000000000002', auth.uid(), true)
@@ -993,11 +1118,11 @@ select 'profiles', 'admin sees every profile', '8',
 insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'communities', 'admin sees both fixture communities', '2',
        (select count(*)::text from public.communities
-        where id in (pg_temp.f1ce_community('5'), pg_temp.f1ce_community('6')));
+        where id in (f1ce_rls.f1ce_community('5'), f1ce_rls.f1ce_community('6')));
 
 -- u17: admin may delete evidence. The probe goes 1 -> 0, so this proves the
 -- delete actually happened rather than matching zero rows.
-select pg_temp.rls_effect('u17', 'admin may delete evidence metadata', $q$
+select f1ce_rls.rls_effect('u17', 'admin may delete evidence metadata', $q$
   delete from public.evidence_files
   where report_id = 'f1ce0000-0000-4000-8000-000000000020'
 $q$,
@@ -1014,7 +1139,7 @@ select 'u8/F1', 'a restore that also changes status is DENIED', 'false',
        public.can_update_report('f1ce0000-0000-4000-8000-000000000023', 'resolved', null)::text;
 
 -- u8: staff moderation soft-delete must not change the status.
-select pg_temp.rls_effect('u8', 'admin may soft-delete any report (moderation)', $q$
+select f1ce_rls.rls_effect('u8', 'admin may soft-delete any report (moderation)', $q$
   update public.reports set deleted_at = now()
   where id = 'f1ce0000-0000-4000-8000-000000000022'
 $q$,
@@ -1033,13 +1158,13 @@ select 'u7 D8', 'pending -> in_progress allowed when an active assignment exists
        public.can_transition_status('f1ce0000-0000-4000-8000-000000000020', 'in_progress')::text;
 
 -- u3: admin report creation is a documented exception in can_create_report.
-select pg_temp.rls_effect('u3', 'admin may create a report (documented exception)', $q$
+select f1ce_rls.rls_effect('u3', 'admin may create a report (documented exception)', $q$
   insert into public.reports (reporter_id, report_type, title, description, category_id,
     priority, status, department_id, community_id)
   values (auth.uid(), 'community', 'fixture admin report', 'd',
           (select id from public.categories where name = 'Academic' limit 1),
-          'low', 'pending', pg_temp.f1ce_dept(),
-          pg_temp.f1ce_community('5'))
+          'low', 'pending', f1ce_rls.f1ce_dept(),
+          f1ce_rls.f1ce_community('5'))
 $q$,
   $q$select count(*)::text from public.reports where title = 'fixture admin report'$q$, '1');
 
@@ -1047,33 +1172,82 @@ reset role;
 
 -- =============================================================================
 -- 4. Report.
+--
+--    Three result sets, and the LAST one is the one that matters: the Supabase
+--    SQL Editor only reliably surfaces the final statement's rows, so the
+--    summary repeats the failure detail inline. If you only ever see one grid,
+--    it will be the summary, and it will tell you everything.
 -- =============================================================================
+
+-- 4a. Full detail, failures first.
 select
-  case when actual like '%(state is as required)%'
-        or actual like '%(state unchanged, as required)%'
-       then 'PASS' else 'FAIL' end as result,
+  case when f1ce_rls.is_pass(expected, actual) then 'PASS' else 'FAIL' end as result,
   requirement,
   expectation,
   expected,
-  actual
+  actual,
+  error_detail
 from public.rls_test_results
-order by (case when actual like '%(state is as required)%'
-                     or actual like '%(state unchanged, as required)%'
-                then 1 else 0 end) asc,
+order by (case when f1ce_rls.is_pass(expected, actual) then 1 else 0 end) asc,
          requirement, id;
 
+-- 4b. THE ONE TO READ. Counts, then every failure spelled out with the real
+--     Postgres error that caused it.
 select
   count(*) as total,
-  count(*) filter (where actual like '%(state is as required)%'
-                     or actual like '%(state unchanged, as required)%') as passed,
-  count(*) filter (where actual not like '%(state is as required)%'
-                     and actual not like '%(state unchanged, as required)%') as failed,
+  count(*) filter (where f1ce_rls.is_pass(expected, actual)) as passed,
+  count(*) filter (where not f1ce_rls.is_pass(expected, actual)) as failed,
   count(*) filter (
     where requirement = 'sanity'
-      and actual not like '%(state is as required)%'
-      and actual not like '%(state unchanged, as required)%') as fixture_problems
-from public.rls_test_results;
+      and not f1ce_rls.is_pass(expected, actual)) as fixture_problems,
+  coalesce(
+    string_agg(
+      format('%s :: %s :: expected %s :: got %s :: pgerror: %s',
+             requirement, expectation, expected, actual,
+             coalesce(error_detail, '(none)')),
+      E'\n' order by id),
+    'no failures') as failure_detail
+from public.rls_test_results
+where not f1ce_rls.is_pass(expected, actual);
 
--- Nothing is persisted. Fixtures, the results table and the helper functions
--- all disappear with this statement.
+-- =============================================================================
+-- 5. Cleanup.
+--    Explicit, so nothing survives even if the editor aborts earlier or runs
+--    each statement in its own transaction. The ROLLBACK afterwards is belt and
+--    braces for the case where the whole script really did share a transaction.
+-- =============================================================================
+drop schema if exists f1ce_rls cascade;
+drop table if exists public.rls_test_results;
+
+do $f1ce_cleanup$
+begin
+  delete from public.report_activity
+   where report_id::text like 'f1ce0000-%'
+      or actor_id::text  like 'f1ce0000-%';
+
+  delete from public.notifications
+   where user_id::text      like 'f1ce0000-%'
+      or reference_id::text like 'f1ce0000-%';
+
+  delete from public.ai_classification_log where report_id::text like 'f1ce0000-%';
+  delete from public.evidence_files  where uploaded_by::text like 'f1ce0000-%';
+  delete from public.report_comments  where author_id::text     like 'f1ce0000-%';
+  delete from public.report_supports  where supporter_id::text   like 'f1ce0000-%';
+
+  delete from public.report_assignments
+   where assigned_to::text like 'f1ce0000-%'
+      or assigned_by::text like 'f1ce0000-%';
+
+  delete from public.reports where id::text like 'f1ce0000-%';
+  delete from public.community_members where profile_id::text like 'f1ce0000-%';
+
+  delete from auth.identities
+   where user_id::text like 'f1ce0000-%'
+      or provider_id like '%rls-test.local%';
+
+  delete from public.profiles where id::text like 'f1ce0000-%';
+  delete from auth.users     where email like '%@rls-test.local';
+end
+$f1ce_cleanup$;
+
 rollback;

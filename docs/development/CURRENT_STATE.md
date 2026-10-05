@@ -16,15 +16,15 @@ run them in any order.
 
 | # | Run this | Unblocks |
 |---|---|---|
-| 1 | `supabase/migrations/20261005120000_seed_staff_demo_accounts.sql` | All staff login + all four panel demos |
-| 2 | `20261005123000_ai1_duplicate_detection.sql` | Duplicate flagging (`duplicate_of`) |
-| 3 | `20261005130000_fix_evidence_path_prefix.sql` | Evidence upload — see below, **found 2026-10-05** |
-| 4 | The one query in §3.1 | The remaining `NoSuchBucket` half of the evidence bug |
-| 5 | `supabase/tests/rls_policy_tests.sql` | **Proves** the 32 RLS policies actually hold — §7c |
+| 1 | `supabase/migrations/20261005140000_fix_student_soft_delete_rls.sql` | **Student "cancel my report" (u8) — a real bug the suite found** |
+| 2 | `supabase/migrations/20261005120000_seed_staff_demo_accounts.sql` | All staff login + all four panel demos |
+| 3 | `20261005123000_ai1_duplicate_detection.sql` | Duplicate flagging (`duplicate_of`) |
+| 4 | `20261005130000_fix_evidence_path_prefix.sql` | Evidence upload — see below, **found 2026-10-05** |
+| 5 | The one query in §3.1 | The remaining `NoSuchBucket` half of the evidence bug |
+| 6 | Re-run `supabase/tests/rls_policy_tests.sql` | Confirms the u8 fix: expect **92/92, 0 failed** |
 
-None of them has ever been executed. Items 1–3 are written and syntax-checked;
-item 4 is a read-only query; item 5 is a self-contained test transaction that rolls
-itself back (§7c).
+Items 2–4 are written and syntax-checked but never executed. Item 5 is a read-only
+query. Item 6 is the RLS suite, which **has now been executed once** — see §7c.
 
 **The evidence blocker is now two independent bugs, not one.** Reading
 `reports_repository.dart` against `storage_evidence_report_id` turned up a
@@ -42,7 +42,9 @@ classification and priority prediction are still unbuilt proposals.
 
 **The 32 RLS policies now have an executable test suite** (§7c) — the first thing
 in this project that can actually *prove* a security claim rather than assert it in
-prose. It has never been run: paste it into the SQL Editor.
+prose. **Run once on 2026-10-05: 91 assertions, 89 passed, 2 failed, 0 fixture
+problems — and it caught a real bug**, a student being unable to soft-delete their own
+report (`u8`). See §7c for the full account and the fix.
 
 Nothing is uncommitted.
 
@@ -421,15 +423,55 @@ mock every repository, so no test ever reached Postgres; no staff account had ev
 existed in a live database, so the staff policies had never run against real data.
 Every claim in `RLS_POLICIES.md` rested on a human reading SQL correctly.
 
-**What was added.** `supabase/tests/rls_policy_tests.sql` — ~1080 lines, one
-transaction, pasted into the Supabase SQL Editor. It asserts u1–u23 plus the D1–D10
-lifecycle invariants and prints a pass/fail table. Nothing is persisted: the
-transaction ends in `ROLLBACK`.
+**What was added.** `supabase/tests/rls_policy_tests.sql` — ~1200 lines, pasted into
+the Supabase SQL Editor. It asserts u1–u23 plus the lifecycle invariants the fixtures
+reach — D1, D3, D5, D6, D8, D10 (**not** D2, D4, D7, D9; see `TESTING_STRATEGY.md` for
+what those need) — and prints a pass/fail table. Nothing is persisted: fixtures and helper
+objects are deleted
+explicitly before and after the assertions, with a final `ROLLBACK` as belt and braces,
+so an aborted run leaves nothing behind and re-running is safe.
+
+**Two Supabase SQL Editor quirks already hit and worked around.** (1) Helpers are in an
+ordinary schema `f1ce_rls`, not `pg_temp`, because the editor rejects
+`create function pg_temp.…` with `3F000: schema "pg_temp" does not exist` even after a
+temp table exists in the same session. (2) Answer **Run without RLS** when prompted — the
+only table created is a scratch results table that is dropped again.
 
 It needs no service-role key and no throwaway accounts. It impersonates each user
 with `set local role authenticated` plus `request.jwt.claims`, which is exactly what
 PostgREST does, so `auth.uid()` and `my_role()` resolve as they would in production.
 Fixture `auth.users` rows exist only because `profiles.id` has an FK to them.
+
+### First live run (2026-10-05) — it found a real bug
+
+**Result: 91 assertions, 89 passed, 2 failed, 0 fixture problems.** Zero fixture
+problems is the load-bearing number: it means all 8 users, 2 communities and 8 reports
+built correctly, so both failures were real rather than harness noise.
+
+| Requirement | Outcome |
+|---|---|
+| `u1` carol sees 1 report in her community | **Test bug, not a policy bug.** Community B deliberately holds two reports (`...27` carol's and `...24` alice's historical one). Isolation is per-*community*, so 2 was correct. Expectation corrected to 2 and split into a second assertion that carol sees nothing from community A. |
+| `u8` alice may soft-delete her own pending report | **Real production bug.** `pgerror: new row violates row-level security policy for table "reports"`. |
+
+**The u8 defect.** `can_update_report()` opened with a blanket
+`if not public.report_visible_to_caller(p_report_id) then return false; end if;`.
+For a student that predicate demands `reports.deleted_at is null` — but soft-deleting
+*is* setting `deleted_at`, and RLS evaluates WITH CHECK against the post-update row. The
+guard was therefore unsatisfiable and **every student soft-delete failed**. In the app a
+student tapping "cancel my report" would get `42501` and the report would stay open.
+
+Only students were affected, and that asymmetry is what identified it: the staff branch
+of the same function gates on `report_visible_to_staff()`, which does *not* filter
+`deleted_at`, so admin moderation soft-delete (also u8) and the admin restore (F1) both
+passed. Fixed in `20261005140000_fix_student_soft_delete_rls.sql` by authorising the
+student branch on **ownership + the specific transition** instead of post-update
+visibility. This is not a loosening — the USING clause still decides which rows a
+student may touch, and the WITH CHECK re-asserts ownership, `old deleted_at IS NULL`,
+`new deleted_at IS NOT NULL`, and status unchanged and `pending`. The staff branch is
+unchanged byte-for-byte.
+
+**This is precisely the class of defect 258 mocked Flutter tests cannot reach**, and it
+is the justification for having written the suite at all.
 
 **Three design points worth keeping if this file is ever extended:**
 
@@ -452,10 +494,23 @@ Fixture `auth.users` rows exist only because `profiles.id` has an FK to them.
    are resolved by key and reused. Everything the suite owns carries the `f1ce0000`
    prefix and every count filters on it.
 
-**Status: written and statically checked, NOT yet executed.** There is no Supabase
-CLI, `psql` or Docker in this environment, so the SQL has never been run. Paste it
-into the SQL Editor to get the first real result. Expect the possibility of genuine
-failures on first run — that is the value of the exercise, not a defect in it.
+**Status: EXECUTED once on 2026-10-05 — 89/91 passing, and it found a real bug.** There
+is no Supabase CLI, `psql` or Docker in this environment, so it is run by pasting it into
+the SQL Editor. First run: **2 failures, 0 fixture problems.** One (`u1` carol) was a
+wrong test expectation and is fixed; the other (`u8`) was a genuine policy defect —
+students could not soft-delete their own report — now fixed by
+`20261005140000_fix_student_soft_delete_rls.sql`. **Re-run it to confirm 92/92.**
+
+Three Supabase SQL Editor quirks, all hit and worked around:
+
+1. `pg_temp` is unusable — `create function pg_temp.…` fails with
+   `3F000: schema "pg_temp" does not exist` even after a temp table exists in the same
+   session. Helpers therefore live in an ordinary schema `f1ce_rls`.
+2. Answer **Run without RLS** when prompted; the only table created is a scratch
+   results table that is dropped again.
+3. Never rely on the trailing `ROLLBACK` alone. The script now deletes its own fixtures
+   and helper objects explicitly, before *and* after the assertions, so an aborted run
+   cannot pollute the database and re-running is always safe.
 
 ---
 

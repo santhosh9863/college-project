@@ -62,9 +62,19 @@ It prints a pass/fail table per requirement. There is no Supabase CLI, `psql` or
 Docker in this environment, so it cannot be executed from the repo — this is a
 manual step, not a `flutter test` target.
 
-It covers all of u1–u23 from `RLS_POLICIES.md` and the D1–D10 lifecycle invariants
-from `REPORT_LIFECYCLE.md`, including the ones that are easy to regress because
-they are subtle:
+It covers all of u1–u23 from `RLS_POLICIES.md` plus the lifecycle invariants from
+`REPORT_LIFECYCLE.md` that the current fixtures can reach — **D1, D3, D5, D6, D8 and
+D10** — including the ones that are easy to regress because they are subtle:
+
+**Known coverage gap.** D2, D4, D7 and D9 are **not** asserted yet, so this suite is
+not yet full D1–D10 evidence:
+
+| Missing | Requirement | Why it is missing | Fixture needed |
+|---|---|---|---|
+| D2 | `under_review → resolved` denied (must pass through `in_progress`) | Only `pending → resolved` (D10) is tested | one `under_review` fixture |
+| D4 | `rejected → under_review` / `→ in_progress`, operations/admin only | no `rejected` fixture exists at all | one `rejected` fixture |
+| D7 | technician/operations forward transitions on reports they can see | only `hod` forward transitions are exercised | technician visible `pending` fixture (exists — assertion still missing) |
+| D9 | notification recipients emitted on status change | u19 proves per-user notification *isolation*, not the trigger's recipient selection | assert on a status-change notification |
 
 | Area | What is asserted |
 |---|---|
@@ -83,9 +93,15 @@ they are subtle:
 - **No service-role key.** Users are impersonated with `set local role
   authenticated` plus `request.jwt.claims`, which is precisely what PostgREST does.
   Every predicate resolves `auth.uid()` / `my_role()` as it would in production.
-- **No persistence.** One transaction, ending in `ROLLBACK`. Fixtures, the results
-  table and the helper functions all disappear, so it is safe to point at the live
-  database.
+- **No persistence.** Fixtures and helper objects are deleted explicitly, both
+  before the assertions and after them, so an aborted run cannot pollute the
+  database and the script is safe to re-run. A final `ROLLBACK` is belt and
+  braces. Everything deleted carries the `f1ce0000` prefix or an
+  `@rls-test.local` email, so real data is never touched.
+- **Editor compatible.** Helpers live in an ordinary schema (`f1ce_rls`), not
+  `pg_temp`: the Supabase SQL Editor rejects `create function pg_temp.…` with
+  `3F000: schema "pg_temp" does not exist`. Answer **Run without RLS** if
+  prompted.
 - **No collision with real data.** Fixture rows are fresh uuids sharing the
   `f1ce0000` prefix and every count filters on it. The `GENERAL` department and the
   `BCA 2024 S5/S6 C` communities are resolved by key and reused, because both tables
