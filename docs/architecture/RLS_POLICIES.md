@@ -239,7 +239,7 @@ Legend: **S**=student, **H**=hod, **T**=technician, **O**=operations, **A**=admi
 ## 6. Implementation Order (pending explicit authorization)
 
 1. ~~Generate the RLS migration~~ — **done**, `20260811103300_rls_security.sql`.
-2. ~~Apply via the established preflight flow~~ — **partly done**: 34 of 37 migrations
+2. ~~Apply via the established preflight flow~~ — **partly done**: 34 of 38 migrations
    were applied by hand through the SQL Editor (no Supabase CLI in this environment),
    so the `migration list --linked` / `db push` flow in this section was never used.
    `20261005130000` (evidence path prefix fix), `20261005120000` (staff seed) and

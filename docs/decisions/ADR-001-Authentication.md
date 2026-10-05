@@ -55,7 +55,7 @@ were wrong, and each was verifiable in one grep.
 2. **`JWT_AUTH_COMPATIBILITY.md:5` claimed "No implementation"**, repeated at `:125`
    ("no implementation, no schema changes, no RLS SQL"). It is fully implemented: the
    `verifyOtp` sequence it recommends runs at `index.ts:490-513`, and the RLS it was
-   gating exists as 28 policies.
+   gating exists as 32 live policies (28 of them in `rls_security.sql`).
 3. **Staff authentication was documented as out of scope** — "provisioning OUT OF MVP
    (locked decision 5)" at `AUTHENTICATION_ARCHITECTURE.md:49`, restated at
    `LINWAYS_INTEGRATION_ARCHITECTURE.md:205` and `MASTER_ARCHITECTURE.md:267`. A

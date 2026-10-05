@@ -101,9 +101,9 @@ Ten files, no new files, no migrations.
 
 ## 2b. Changes made 2026-10-05
 
-Four commits. No Dart behaviour changes — `flutter analyze` clean and 258/258 tests
-pass at every one of them, and the test count did not move, which is the point of
-the last one.
+Eight commits. No Dart behaviour changes after `00713cc` — `flutter analyze` clean and
+258/258 tests pass throughout, and the test count did not move, which is the point of
+the four RLS commits: none of them could have been caught by the Dart suite.
 
 | Commit | Change | Why |
 |---|---|---|
@@ -111,7 +111,10 @@ the last one.
 | `dc1a037` | Filled `docs/decisions/ADR-001-Authentication.md` — was a 454-byte skeleton with no decisions in it | It claimed a login response shape (`campus_pulse_jwt`) that the code does not produce, using a **banned project name** |
 | `8830644` | Filled `docs/decisions/ADR-002-Database.md`; corrected the stale u23 and status rows in `RLS_POLICIES.md` | It claimed "no RLS SQL written or applied yet" while 32 policies were live, and recorded u23 as deferred when `20260815121000` had implemented it |
 | `b45664b` | `20261005130000_fix_evidence_path_prefix.sql` + filled `STORAGE_DESIGN.md` | Found a **live regression**: the client uploads to `evidence/<report_id>/<file>` but the parser read `foldername()[1]` as the report UUID, so `'evidence'::uuid` **throws**. Evidence upload has been broken since `20260815105000` — see §3. |
-| *(this change)* | `supabase/tests/rls_policy_tests.sql` + §7c + `RLS_POLICIES.md` §7 + `TESTING_STRATEGY.md` §5 | The 32 policies were documentation. This is the first executable check of them — §7c |
+| `6712ffb` | `supabase/tests/rls_policy_tests.sql` + §7c + `RLS_POLICIES.md` §7 + `TESTING_STRATEGY.md` §5 | The 32 policies were documentation. This is the first executable check of them — §7c |
+| `fd82a00` | Harness hardening (helpers out of `pg_temp` into `f1ce_rls`, explicit cleanup, fixed `is_pass` and the summary aggregate, added `error_detail`) **+ the first, wrong, u8 fix** `20261005140000` | Without these the first run was uninterpretable. The u8 fix in this commit **did not work** — see §7c |
+| `c09041e` | Nine `u8-diag` rows printing each term of the gate as alice; fixed the failure count, which used a query-level `WHERE` instead of an aggregate `FILTER` and so counted diag rows as failures | Guessing twice had produced two wrong fixes; instrumenting is what isolated it |
+| `be5bd5c` | `20261005150000_fix_policy_self_read.sql` — the real u8 fix, plus both probe helpers; §7c rewritten and `RLS_POLICIES.md` §7.1 added | Replaces the self-read with a row-aware `USING` gate. **Written but not yet applied** — see §7c |
 
 **Why the RLS suite was the highest-value thing available.** Everything else in this
 table is a feature or a doc fix. This one closes the gap where the project's headline
@@ -401,7 +404,7 @@ material ones:
 | Login returns `{ campus_pulse_jwt, ... }` (`AUTHENTICATION_ARCHITECTURE.md:40`, `LINWAYS_INTEGRATION_ARCHITECTURE.md:100`) | It returns `supabase_session`. "Campus Pulse" is also a **banned project name** (§5.5), so the docs broke their own rule. Both diagrams fixed. |
 | `JWT_AUTH_COMPATIBILITY.md:5` "No implementation" | Fully implemented — its recommended `verifyOtp` runs at `linways-login/index.ts:490-513`. Status header rewritten. |
 | Staff auth is "OUT OF MVP" (`AUTHENTICATION_ARCHITECTURE.md:49` + 2 more) | Implemented at `index.ts:563-608` |
-| `DATABASE_DESIGN.md:4` "14 migration files, not yet applied" | 36 files, 33 applied |
+| `DATABASE_DESIGN.md:4` "14 migration files, not yet applied" | **38** files, **34** applied, 4 pending |
 | `RLS_POLICIES.md:4` "NO RLS SQL written or applied yet" | 32 live policies |
 | `RLS_POLICIES.md:49` u23 "department scoping is deferred" | Implemented in `20260815121000` and cited as locked decision D1 |
 | Docs list 14 tables and 3 priority values | 15 tables (`login_attempts` undocumented), 4 values (`'critical'` added `20260815100000`) |

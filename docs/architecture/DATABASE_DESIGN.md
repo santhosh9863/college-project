@@ -3,13 +3,17 @@
 > PostgreSQL database schema design for the college project system.
 > ⚠️ **Status: SUPERSEDED IN PART — this document predates the applied migrations.**
 > Its header previously read "APPROVED — v1.0. Migrations generated (14 files), not yet
-> applied to any database." Both halves are now wrong: there are **35** migration
-> files, and all but two have been applied by hand.
+> applied to any database." Both halves are now wrong: there are **38** migration
+> files, of which **34 have been applied by hand** and **4 are still pending**
+> (`20261005120000` staff seed, `20261005123000` AI-1, `20261005130000` evidence path
+> prefix, `20261005150000` the u8 policy self-read fix).
 > **Read `docs/decisions/ADR-002-Database.md` for the schema as actually built.** Known
 > divergences recorded there: this document lists 14 tables (there are 15 —
 > `login_attempts` is missing), omits the `'critical'` priority value, documents a
 > 13-step apply order that is not the real one, and states at §5 that RLS is out of
-> scope — but 28 RLS policies are applied.
+> scope — but **32** RLS policies are applied. (An earlier revision of this banner said
+> 28, which was only the count from `rls_security.sql`; the storage policies in
+> `20260815102000`–`20260815107000` bring the live total to 32.)
 > The one claim here that remains accurate is the "do not add undocumented fields" rule
 > (§8), which the migrations then broke twice, by adding `reports.community_id` and
 > `'critical'`.

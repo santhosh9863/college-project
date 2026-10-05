@@ -1,7 +1,7 @@
 # ADR-002: Database Design
 
 > Decision record for the PostgreSQL database schema and migration strategy.
-> **Status: ACCEPTED — records the schema as actually applied.** Written from the 35
+> **Status: ACCEPTED — records the schema as actually applied.** Written from the 38
 > migration files, not from `DATABASE_DESIGN.md`, which predates them and contradicts
 > them in six places (§1.1).
 > **Scope of this record: where data lives and who may touch it.** Identity
@@ -44,11 +44,14 @@ to be shaped around what policies can express.
 
 ### 1.1 What the documentation previously claimed
 
-As in ADR-001, the drafts are behind the code. Verified by reading all 35 migrations:
+As in ADR-001, the drafts are behind the code. Verified by reading all 38 migrations:
 
 1. **`DATABASE_DESIGN.md:4` claimed "14 files under `supabase/migrations/`, not yet
-   applied to any database."** There are **35** files, and all but two have been
-   applied. The migrations themselves record the truth: `:3` of several files says
+   applied to any database."** There are **38** files: 34 applied, and four still
+   pending — `20261005120000` (staff seed), `20261005123000` (AI-1),
+   `20261005130000` (evidence path prefix) and `20261005150000` (the u8 policy
+   self-read fix); see `docs/development/CURRENT_STATE.md` §7c. Of the applied ones,
+   the migrations themselves record the truth: `:3` of several files says
    "reproduced live, 2026-08-15", and `20260811103500_login_rate_limit.sql:3` refers to
    "the 18 applied migrations".
 2. **`RLS_POLICIES.md:4` claimed "NO RLS SQL written or applied yet"**, and `:232`
@@ -77,12 +80,13 @@ Tags: **[D]** = already applied. **[N]** = new proposal here, not yet applied.
 
 ### 2.1 Supabase-managed Postgres, migrations applied by hand in filename order **[D]**
 
-35 files under `supabase/migrations/`, named `YYYYMMDDHHMMSS_slug.sql`, applied in
-lexicographic order through the SQL Editor. 33 are applied; `20261005120000` (staff
-seed) and `20261005123000` (AI-1 duplicate detection) are not.
+38 files under `supabase/migrations/`, named `YYYYMMDDHHMMSS_slug.sql`, applied in
+lexicographic order through the SQL Editor. 34 are applied; `20261005120000` (staff
+seed), `20261005123000` (AI-1 duplicate detection), `20261005130000` (evidence path
+prefix) and `20261005150000` (u8 policy self-read fix) are not.
 
 Because re-running an applied file is unsafe, **corrections are new files that drop and
-recreate** rather than edits — hence `drop policy` appearing 3 times against 35
+recreate** rather than edits — hence `drop policy` appearing 3 times against 38
 `create policy` statements, and six `fix_*`/`restore_*` migrations. See §5.4 on
 whether this should be formalised.
 
@@ -174,7 +178,7 @@ Characteristics worth preserving:
 ### 2.8 The report lifecycle is a state machine in SQL, not a constraint **[D]**
 
 This is the schema's most unusual property. `reports.status` has **no CHECK constraint
-and no enum type guarding transitions**. Across all 35 migrations there is exactly
+and no enum type guarding transitions**. Across all 38 migrations there is exactly
 **one** CHECK constraint — `login_attempts.outcome in ('success','failure')`
 (`20260811103500_login_rate_limit.sql:10`) — and `reports` is not it.
 
@@ -268,12 +272,13 @@ The AI decision therefore required no service, no model and no new runtime — s
   silently affects every policy that calls it, and no test asserts the aggregate.
 - **Hand-applied migrations are only as ordered as the operator.** There is no
   `migration_history` table equivalent being consulted, no checksum, and no dry run. The
-  evidence that 33 applied correctly is migration-header prose and the absence of
+  evidence that 34 applied correctly is migration-header prose and the absence of
   errors — not a record the database keeps.
-- **Six corrective migrations exist** because fixes could not be edited in place. Each
-  is a correct fix, but the final state is only readable by replaying 35 files in
+- **Six corrective migrations exist** — a seventh, `20261005150000`, is written but not
+  yet applied — because fixes could not be edited in place. Each
+  is a correct fix, but the final state is only readable by replaying 38 files in
   order. `DATABASE_DESIGN.md` is not a substitute and never was.
-- **`STORAGE_DESIGN.md` is empty**, so storage security knowledge lives only in
+- **`STORAGE_DESIGN.md` was empty**, so storage security knowledge lives only in
   migration comments — the least durable place for it.
 - **Community isolation holds even if the app is entirely replaced.** Because
   `reports.community_id` is a snapshot column rather than a join, a student's access
@@ -315,7 +320,7 @@ The AI decision therefore required no service, no model and no new runtime — s
 4. **Should migration drift be formalised?** Six `fix_*`/`restore_*` files exist
    because corrections cannot be edited in place. A convention that distinguishes
    "applied" from "proposed" migrations — or an applied-migrations ledger checked into
-   the repo — would make the current state readable without replaying 35 files.
+   the repo — would make the current state readable without replaying 38 files.
 5. **`login_attempts` is undocumented in `docs/architecture/`** and holds IP addresses.
    Under most retention policies that is personal data, and the table has no expiry
    mechanism of its own; pruning depends on the Edge Function running
@@ -335,7 +340,7 @@ The AI decision therefore required no service, no model and no new runtime — s
 
 ## 6. References
 
-- `supabase/migrations/` — all 35 files; the schema exists only here
+- `supabase/migrations/` — all 38 files; the schema exists only here
 - `supabase/migrations/20260811102400_reports.sql` — central table, `community_id` snapshot
 - `supabase/migrations/20260811103300_rls_security.sql` — 741 lines, 28 policies, all helpers
 - `supabase/migrations/20260811103400_server_generated_events.sql` — audit triggers, `server_notify`
