@@ -86,14 +86,21 @@ class _HomeShellState extends State<HomeShell> {
   }
 
   Future<void> _openNotificationReport(String reportId) async {
+    await _pushDetail(reportId);
+    _reportsController.load();
+  }
+
+  /// Pushes report detail, letting the pushed screen navigate onwards (used by
+  /// the duplicate notice to reach the canonical report).
+  Future<void> _pushDetail(String reportId) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ReportDetailScreen(
           controller: _reportsController.detailControllerFor(reportId),
+          onOpenReport: _pushDetail,
         ),
       ),
     );
-    _reportsController.load();
   }
 
   Future<void> _openInsights() async {

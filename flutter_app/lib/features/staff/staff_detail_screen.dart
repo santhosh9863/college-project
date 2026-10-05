@@ -10,9 +10,18 @@ import 'staff_detail_controller.dart';
 /// reject with a reason). Actions are offered per the approved lifecycle
 /// matrix; the database remains the enforcement.
 class StaffDetailScreen extends StatefulWidget {
-  const StaffDetailScreen({super.key, required this.controller});
+  const StaffDetailScreen({
+    super.key,
+    required this.controller,
+    this.onOpenReport,
+  });
 
   final StaffDetailController controller;
+
+  /// Opens a different report's staff detail by id. Supplied by the parent,
+  /// which owns the repositories; omitted when unavailable, in which case the
+  /// duplicate notice renders without its link rather than dead-ending.
+  final Future<void> Function(String reportId)? onOpenReport;
 
   @override
   State<StaffDetailScreen> createState() => _StaffDetailScreenState();
@@ -44,6 +53,12 @@ class _StaffDetailScreenState extends State<StaffDetailScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openReport(String reportId) async {
+    final open = widget.onOpenReport;
+    if (open == null) return;
+    await open(reportId);
   }
 
   Future<void> _sendComment() async {
@@ -184,6 +199,16 @@ class _StaffDetailScreenState extends State<StaffDetailScreen> {
             assigneeId: detail.activeAssigneeId,
             authorLabel: 'Student report',
           ),
+          if (report.isDuplicate) ...[
+            const SizedBox(height: 12),
+            DuplicateNoticeCard(
+              report: report,
+              viewerIsStaff: true,
+              onOpenCanonical: widget.onOpenReport == null
+                  ? null
+                  : () => _openReport(report.duplicateOf!),
+            ),
+          ],
           if (controller.canManageAssignments) ...[
             const SizedBox(height: 12),
             _AssignmentCard(

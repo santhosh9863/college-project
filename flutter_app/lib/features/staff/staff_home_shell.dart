@@ -57,14 +57,23 @@ class _StaffHomeShellState extends State<StaffHomeShell> {
   }
 
   Future<void> _openNotificationReport(String reportId) async {
+    await _pushDetail(reportId);
+    _queueController.load();
+  }
+
+  /// Pushes staff detail and lets the pushed screen navigate onwards (the
+  /// duplicate notice uses this to reach the canonical report).
+  Future<void> _pushDetail(String reportId) async {
     final detailController = _queueController.detailControllerFor(reportId);
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
-        builder: (_) => StaffDetailScreen(controller: detailController),
+        builder: (_) => StaffDetailScreen(
+          controller: detailController,
+          onOpenReport: _pushDetail,
+        ),
       ),
     );
     detailController.dispose();
-    _queueController.load();
   }
 
   Future<void> _openInsights() async {

@@ -19,6 +19,7 @@ class Report {
     required this.communityId,
     required this.supportCount,
     required this.createdAt,
+    this.duplicateOf,
     this.updatedAt,
     this.deletedAt,
     this.isMine = false,
@@ -45,6 +46,7 @@ class Report {
       supportCount: _supportCountFromJson(json),
       createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
           DateTime.fromMillisecondsSinceEpoch(0),
+      duplicateOf: _duplicateOfFromJson(json),
       updatedAt: DateTime.tryParse(json['updated_at'] as String? ?? ''),
       isMine: (json['reporter_id'] as String?) == currentUserId,
       deletedAt: DateTime.tryParse(json['deleted_at'] as String? ?? ''),
@@ -70,6 +72,24 @@ class Report {
   final DateTime createdAt;
   final DateTime? updatedAt;
 
+  /// Id of an earlier report that this one looks like a repeat of, set by the
+  /// AI-1 duplicate check (`20261005123000_ai1_duplicate_detection.sql`).
+  ///
+  /// **Advisory only.** It never means the report is invalid, and nothing may
+  /// reject, merge, hide, or close it because of this value (CURRENT_STATE §8).
+  /// The target is always in the same community and always canonical — the
+  /// trigger excludes candidates that are themselves duplicates, so this can
+  /// never point at another duplicate and no chain forms.
+  final String? duplicateOf;
+
+  /// Whether this report was flagged as a possible duplicate. Ignores a
+  /// self-reference, so a row that (defensively) points at itself still renders
+  /// as unflagged rather than showing a notice pointing at its own title.
+  bool get isDuplicate {
+    final target = duplicateOf;
+    return target != null && target.isNotEmpty && target != id;
+  }
+
   /// Soft-delete marker (`deleted_at`); set by student self-cancel or staff
   /// moderation, cleared only by admin restore. Never a client-side boundary —
   /// RLS is the enforcement.
@@ -94,6 +114,7 @@ class Report {
         communityId: communityId,
         supportCount: supportCount ?? this.supportCount,
         createdAt: createdAt,
+        duplicateOf: duplicateOf,
         updatedAt: updatedAt,
         isMine: isMine,
         isSupported: isSupported ?? this.isSupported,
@@ -107,5 +128,14 @@ class Report {
     final first = raw.first;
     if (first is! Map<String, dynamic>) return 0;
     return (first['count'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Reads `duplicate_of`, normalising absent/blank/!string values to null so
+  /// callers never have to distinguish "not flagged" from "flagged with junk".
+  static String? _duplicateOfFromJson(Map<String, dynamic> json) {
+    final raw = json['duplicate_of'];
+    if (raw is! String) return null;
+    final value = raw.trim();
+    return value.isEmpty ? null : value;
   }
 }

@@ -404,6 +404,103 @@ class ReportLabelBadge extends StatelessWidget {
   }
 }
 
+class DuplicateNoticeCard extends StatelessWidget {
+  const DuplicateNoticeCard({
+    super.key,
+    required this.report,
+    this.viewerIsStaff = false,
+    this.onOpenCanonical,
+  });
+
+  final Report report;
+
+  /// Staff read this as a triage hint; students read it as guidance, never as a
+  /// reprimand. Same data, different consequence — see §3 below.
+  final bool viewerIsStaff;
+
+  /// Navigates to the canonical report. Omitted on surfaces with no navigation
+  /// available, in which case the notice is informational only.
+  final VoidCallback? onOpenCanonical;
+
+  /// Students must not read being flagged as a fault. In this app several
+  /// students reporting one fault is the *intended* use of a community report —
+  /// support counts aggregate it — so the notice points them at supporting the
+  /// existing report rather than suggesting they did something wrong.
+  ///
+  /// Nothing here rejects, merges, hides, or closes anything (CURRENT_STATE §8).
+  /// The canonical report is in the same community, so naming it leaks nothing
+  /// the community feed does not already show.
+  static const String _studentTitle = 'A similar report already exists';
+  static const String _studentBody =
+      'Someone reported this earlier. Supporting their report helps staff see '
+      'one clear issue instead of many. Yours is saved either way.';
+  static const String _staffTitle = 'Possible duplicate of an earlier report';
+  static const String _staffBody =
+      'Flagged by trigram similarity on insert. Advisory only — the student '
+      'still gets a separate report, and nothing is merged or closed.';
+
+  @override
+  Widget build(BuildContext context) {
+    if (!report.isDuplicate) return const SizedBox.shrink();
+    final theme = Theme.of(context);
+    final canOpen = onOpenCanonical != null;
+
+    return Card(
+      margin: EdgeInsets.zero,
+      color: theme.colorScheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Icon(
+              Icons.copy_all_outlined,
+              size: 20,
+              color: theme.colorScheme.onTertiaryContainer,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    viewerIsStaff ? _staffTitle : _studentTitle,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    viewerIsStaff ? _staffBody : _studentBody,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onTertiaryContainer,
+                    ),
+                  ),
+                  if (canOpen) ...[
+                    const SizedBox(height: 8),
+                    TextButton.icon(
+                      onPressed: onOpenCanonical,
+                      style: TextButton.styleFrom(
+                        foregroundColor: theme.colorScheme.onTertiaryContainer,
+                        padding: EdgeInsets.zero,
+                        minimumSize: const Size(0, 32),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                      icon: const Icon(Icons.open_in_new, size: 16),
+                      label: const Text('View the earlier report'),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class ReportDetailErrorBody extends StatelessWidget {
   const ReportDetailErrorBody({
     super.key,

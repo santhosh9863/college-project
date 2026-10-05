@@ -19,7 +19,7 @@ class StaffReportsRepository {
   static const int _limit = 50;
   static const String _queueSelect =
       'id, title, description, status, priority, category_id, reporter_id, '
-      'community_id, created_at, updated_at, deleted_at, categories(name), report_supports(count)';
+      'community_id, duplicate_of, created_at, updated_at, deleted_at, categories(name), report_supports(count)';
 
   /// Department-routed queue (RLS `reports_select_visible` + D1 scope).
   Future<List<Report>> fetchQueue({

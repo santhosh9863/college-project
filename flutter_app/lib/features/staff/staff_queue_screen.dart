@@ -15,14 +15,24 @@ class StaffQueueScreen extends StatelessWidget {
   final StaffQueueController controller;
 
   Future<void> _openDetail(BuildContext context, Report report) async {
-    final detailController = controller.detailControllerFor(report.id);
+    await _pushDetail(context, report.id);
+    controller.load();
+  }
+
+  /// Pushes staff detail and lets the pushed screen navigate onwards (the
+  /// duplicate notice uses this to reach the canonical report). Each nested
+  /// push owns and disposes its own controller.
+  Future<void> _pushDetail(BuildContext context, String reportId) async {
+    final detailController = controller.detailControllerFor(reportId);
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (_) => StaffDetailScreen(controller: detailController),
+        builder: (_) => StaffDetailScreen(
+          controller: detailController,
+          onOpenReport: (id) => _pushDetail(context, id),
+        ),
       ),
     );
     detailController.dispose();
-    controller.load();
   }
 
   @override
@@ -175,6 +185,15 @@ class _ReportTile extends StatelessWidget {
                     const SizedBox(width: 8),
                   ],
                   ReportStatusBadge(status: report.status),
+                  if (report.isDuplicate) ...[
+                    const SizedBox(width: 8),
+                    // Triage hint only. The report stays a separate report; the
+                    // duplicate link is advisory and never merges or closes.
+                    const ReportLabelBadge(
+                      icon: Icons.copy_all_outlined,
+                      label: 'Duplicate',
+                    ),
+                  ],
                 ],
               ),
               if (report.description.isNotEmpty) ...[

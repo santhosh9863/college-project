@@ -9,9 +9,21 @@ import 'widgets/report_detail_widgets.dart';
 /// support, comments and (for the author of a pending report) cancellation.
 /// All writes are optimistic in the controller and enforced by RLS.
 class ReportDetailScreen extends StatefulWidget {
-  const ReportDetailScreen({super.key, required this.controller});
+  const ReportDetailScreen({
+    super.key,
+    required this.controller,
+    this.onOpenReport,
+  });
 
   final ReportDetailController controller;
+
+  /// Opens a different report by id. Supplied by the parent, which owns the
+  /// repository — this screen is deliberately given no data access of its own.
+  ///
+  /// When omitted, the duplicate notice renders without its "view the earlier
+  /// report" link rather than dead-ending on a tap. Both remaining call sites
+  /// (feed and home shell) can supply it.
+  final Future<void> Function(String reportId)? onOpenReport;
 
   @override
   State<ReportDetailScreen> createState() => _ReportDetailScreenState();
@@ -43,6 +55,12 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+
+  Future<void> _openReport(String reportId) async {
+    final open = widget.onOpenReport;
+    if (open == null) return;
+    await open(reportId);
   }
 
   Future<void> _toggleSupport() async {
@@ -144,6 +162,15 @@ class _ReportDetailScreenState extends State<ReportDetailScreen> {
         padding: const EdgeInsets.all(16),
         children: [
           ReportHeaderCard(report: report, assigneeId: detail.activeAssigneeId),
+          if (report.isDuplicate) ...[
+            const SizedBox(height: 12),
+            DuplicateNoticeCard(
+              report: report,
+              onOpenCanonical: widget.onOpenReport == null
+                  ? null
+                  : () => _openReport(report.duplicateOf!),
+            ),
+          ],
           if (!report.isMine) ...[
             const SizedBox(height: 12),
             _SupportCard(

@@ -11,19 +11,22 @@
 
 ## TL;DR
 
-Two things must be run in the Supabase SQL Editor, in this order:
+**Three things must be run in the Supabase SQL Editor.** They are independent;
+run them in any order.
 
-1. **`supabase/migrations/20261005120000_seed_staff_demo_accounts.sql`** —
-   creates the four staff demo accounts. They do not exist right now, so **all
-   staff login and all four panel demos are dead** until it runs. Written and
-   syntax-checked; never executed.
-2. **The one query in §3.1** — decides the evidence-upload fix. The diagnosis
-   previously recorded in this file was wrong (§3.0); the project is *not*
-   paused, and the anon storage probe cannot distinguish a missing bucket from
-   an RLS-hidden one.
+| # | Run this | Unblocks |
+|---|---|---|
+| 1 | `supabase/migrations/20261005120000_seed_staff_demo_accounts.sql` | All staff login + all four panel demos |
+| 2 | `20261005123000_ai1_duplicate_detection.sql` | Duplicate flagging (`duplicate_of`) |
+| 3 | The one query in §3.1 | The evidence-upload fix |
+
+None of them has ever been executed. Items 1 and 2 are written and
+syntax-checked; item 3 is a read-only query.
 
 Student login works. Submitting a report works **if you attach nothing** —
-evidence upload is the one open bug. AI/ML is specified but not started.
+evidence upload is the one open bug. AI is now AI-0 (ADR written) + AI-1
+(duplicate detection, not applied); classification and priority prediction
+are still unbuilt proposals.
 
 Nothing is uncommitted.
 
@@ -41,11 +44,13 @@ Nothing is uncommitted.
 | Notifications / analytics | ✅ Built (phases 2.8, 2.9) |
 | Attendance + OCR import | ✅ Built (ML Kit, separate from reports) |
 | AI / ML | 🟡 AI-0 + AI-1 written, **not applied** — duplicate detection only (§6) |
+| Duplicate read surface | ✅ Built client-side — shows nothing until AI-1 is applied (§6) |
 | Storage / evidence | ❌ Broken |
 | `flutter analyze` | ✅ Clean (re-run 2026-10-05) |
-| `flutter test` | ✅ 241/241 pass (re-run 2026-10-05) |
+| `flutter test` | ✅ **258/258** pass (was 241; +17 for the duplicate notice) |
 | Supabase CLI | ❌ **Not installed** — nothing can be deployed |
-| Uncommitted changes | ✅ None — all work committed (this file still untracked) |
+| Uncommitted changes | ✅ None — working tree clean |
+| Android emulator | 🟡 AVD `college_project` exists, **exits under memory pressure** (§5.4) |
 
 ---
 
@@ -171,10 +176,14 @@ Invoke-WebRequest -Uri "https://bvxuvkpmpufsbxvpdkht.functions.supabase.co/linwa
 # Anything else, check auth/v1/health -> {"version":"v2.197.0",...} means GoTrue is up
 
 # 3. Run the app
-cd flutter_app; flutter run        # no Android device? check `flutter devices`
+cd flutter_app; flutter run        # Android emulator: see 5.4 before starting
 ```
 
-`flutter analyze` and `flutter test` were both clean at last run (241 tests).
+`flutter analyze` and `flutter test` were both clean at last run (241 tests,
+2026-10-05). A debug APK builds cleanly (~100s).
+
+**Do not run `flutter build` / `flutter doctor` casually** — see §5.4; they can
+create stray platform folders and a failing template test.
 
 ---
 
@@ -217,14 +226,40 @@ Linways handshake (`index.ts:576`).
 CORS blocks the response. Android/iOS unaffected (no CORS). Only matters if
 demoing in Chrome.
 
-### 5.4 Only Windows + Chrome/Edge devices are connected
-`flutter devices` shows no Android device/emulator. The app has Android build
-artifacts, so it has been run on Android before — start an emulator first.
+### 5.4 An Android emulator now exists — but this machine is memory-starved
+**Fixed 2026-10-05.** There was never a missing SDK; no **AVD** had been created.
+Created `college_project` from the already-installed
+`system-images;android-37.0;google_apis_playstore_ps16k;x86_64`
+(Android 17, x86_64, boots in ~85s). It now shows in `flutter devices` as
+`emulator-5554`.
+
+**It keeps exiting on its own during app installs.** Host is **16 GB with only
+~5 GB free**; the AVD plus a Gradle build exceeds that. Not a config fault —
+`hw.ramSize` is already lowered to 2048. Practical rules:
+
+- Build the APK **first**, with the emulator stopped. Then start the emulator
+  and install the prebuilt APK. Do not run Gradle while it boots.
+- Close Chrome and other heavy apps first.
+- Expect roughly 80-90s to boot; poll with
+  `adb -s emulator-5554 shell getprop sys.boot_completed` → `1`.
+
+**Also: `flutter build` / `flutter doctor` pollute the repo.** They created
+`linux/`, `macos/`, `web/`, `windows/` scaffolding, rewrote `.metadata`, and
+dropped the *template* `test/widget_test.dart` — a default counter-app test
+against a non-counter app, which **fails the suite**. If that file reappears,
+delete it; those platform folders are not gitignored and will show as
+untracked. The project targets android + ios only.
 
 ### 5.5 The project must be called "college project"
 Never PULSE / SafeBunk / "Campus Pulse" — in code, docs, commit messages, or
 the report. `docs/references/PULSE_AUTHENTICATION_ARCHITECTURE.md` is a
 reference doc only. (A draft AI plan repeatedly called it "Campus Pulse".)
+
+### 5.6 `docs/README.md` points at this file — keep them consistent
+`docs/README.md` links `development/CURRENT_STATE.md` as its "Start here". A
+stale claim in this file is the single most expensive kind of documentation bug
+in this repo: it has already cost one session a dead end (§3.0). If you change
+reality, change this file in the same commit.
 
 ---
 
@@ -262,9 +297,20 @@ Two things to know before changing it:
   `can_create_report()` expects. Detection only flags; no report is ever
   rejected, merged, hidden, or closed (§8 invariant).
 
-**Biggest gap:** `duplicate_of` is written but **displayed nowhere**. Staff have
-no "similar to report X" hint yet, so AI-1's value is currently invisible to the
-people it helps. That's ADR-003 §5.1 and the natural next task.
+**AI-1's read surface is now built (client side).** `Report.duplicateOf` is
+parsed (blank/non-string/self-reference all normalise to "not flagged"), a
+shared `DuplicateNoticeCard` renders in both the student and staff detail
+screens, the staff queue shows a **Duplicate** badge, and the notice links
+through to the canonical report. Wording differs by viewer on purpose:
+students get *"A similar report already exists — supporting their report helps
+staff see one clear issue"*, staff get the triage framing. In this app several
+students reporting one fault is the *intended* use of a community report, so
+the student copy must never read as a reprimand.
+
+**Caveat: it displays nothing until the migration is applied** — `duplicate_of`
+is NULL for every existing row, and the trigger that sets it is
+`20261005123000`. Purely a client-side read of a column the DB currently never
+writes.
 
 Also still open: the `0.85` threshold is a **guess, not measured** (ADR-003
 §5.2), and pre-existing reports are **not backfilled** (§5.3).
@@ -276,6 +322,7 @@ Also still open: the `0.85` threshold is a **guess, not measured** (ADR-003
 - **Run `20261005120000_seed_staff_demo_accounts.sql`** — written + syntax
   checked, never executed. Blocks all staff login and all four panel demos.
 - **Run `20261005123000_ai1_duplicate_detection.sql`** — written, never executed.
+  Until it runs, the duplicate notice is dead UI.
 - Run the §3.1 type query — blocks the evidence upload fix
 - Staff-facing duplicate hint — `duplicate_of` is written but shown nowhere
 - AI-2+ (Edge Function, dataset, classification, priority)

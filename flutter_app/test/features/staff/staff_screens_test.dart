@@ -18,6 +18,7 @@ Report _report({
   String title = 'Broken projector',
   ReportStatus status = ReportStatus.pending,
   DateTime? deletedAt,
+  String? duplicateOf,
 }) =>
     Report(
       id: id,
@@ -35,6 +36,7 @@ Report _report({
       createdAt: DateTime(2026, 8, 15),
       updatedAt: DateTime(2026, 8, 15),
       deletedAt: deletedAt,
+      duplicateOf: duplicateOf,
     );
 
 class _FakeStaffReportsRepository extends StaffReportsRepository {
@@ -147,6 +149,49 @@ void main() {
       await settle(tester);
 
       expect(find.textContaining('No department reports right now'), findsOneWidget);
+    });
+
+    testWidgets('badges a flagged duplicate report in the queue',
+        (tester) async {
+      final controller = StaffQueueController(
+        repository: _FakeStaffReportsRepository(
+          queue: [
+            _report(
+              id: 'r-2',
+              title: 'Broken projector again',
+              duplicateOf: 'r-1',
+            ),
+            _report(id: 'r-3', title: 'Wi-Fi down', status: ReportStatus.inProgress),
+          ],
+        ),
+        detailRepository: _FakeReportsRepository(),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: StaffQueueScreen(controller: controller)),
+        ),
+      );
+      await settle(tester);
+
+      // Exactly one badge: only the flagged row carries it.
+      expect(find.text('Duplicate'), findsOneWidget);
+    });
+
+    testWidgets('no duplicate badge when nothing is flagged', (tester) async {
+      final controller = StaffQueueController(
+        repository: _FakeStaffReportsRepository(
+          queue: [_report(id: 'r-2', title: 'Broken projector')],
+        ),
+        detailRepository: _FakeReportsRepository(),
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: StaffQueueScreen(controller: controller)),
+        ),
+      );
+      await settle(tester);
+
+      expect(find.text('Duplicate'), findsNothing);
     });
   });
 
@@ -351,6 +396,57 @@ void main() {
       expect(find.text('Delete'), findsNothing);
       expect(find.text('Start review'), findsNothing);
       expect(find.text('This report is hidden from students.'), findsOneWidget);
+    });
+
+    testWidgets('shows the staff duplicate notice and follows the link',
+        (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(
+          detail: ReportDetail(
+            report: _report(duplicateOf: 'r-0'),
+            comments: const [],
+            evidence: const [],
+            activity: const [],
+            activeAssigneeId: null,
+          ),
+        ),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'hod',
+      );
+      var openedTo = '<none>';
+      await tester.pumpWidget(
+        MaterialApp(
+          home: StaffDetailScreen(
+            controller: controller,
+            onOpenReport: (id) async => openedTo = id,
+          ),
+        ),
+      );
+      await settle(tester);
+
+      expect(find.text('Possible duplicate of an earlier report'),
+          findsOneWidget);
+      await tester.tap(find.text('View the earlier report'));
+      await settle(tester);
+      expect(openedTo, 'r-0');
+    });
+
+    testWidgets('no duplicate notice when the report is not flagged',
+        (tester) async {
+      final controller = StaffDetailController(
+        repository: _FakeReportsRepository(),
+        staffRepository: _FakeStaffReportsRepository(),
+        reportId: 'r-1',
+        role: 'hod',
+      );
+      await tester.pumpWidget(
+        MaterialApp(home: StaffDetailScreen(controller: controller)),
+      );
+      await settle(tester);
+
+      expect(find.text('Possible duplicate of an earlier report'), findsNothing);
+      expect(find.text('View the earlier report'), findsNothing);
     });
   });
 }

@@ -43,14 +43,19 @@ class ReportsScreen extends StatelessWidget {
   }
 
   Future<void> _openDetail(BuildContext context, Report report) async {
+    await _pushDetail(context, report.id);
+    await controller.load();
+  }
+
+  Future<void> _pushDetail(BuildContext context, String reportId) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => ReportDetailScreen(
-          controller: controller.detailControllerFor(report.id),
+          controller: controller.detailControllerFor(reportId),
+          onOpenReport: (id) => _pushDetail(context, id),
         ),
       ),
     );
-    await controller.load();
   }
 
   @override

@@ -35,7 +35,7 @@ class ReportsRepository {
 
   static const String _feedSelect =
       'id, title, description, status, priority, category_id, reporter_id, '
-      'community_id, created_at, updated_at, categories(name), '
+      'community_id, duplicate_of, created_at, updated_at, categories(name), '
       'report_supports(count)';
 
   String get _userId {
