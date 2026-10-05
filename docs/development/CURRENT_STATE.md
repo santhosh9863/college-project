@@ -16,7 +16,7 @@ run them in any order.
 
 | # | Run this | Unblocks |
 |---|---|---|
-| 1 | `supabase/migrations/20261005140000_fix_student_soft_delete_rls.sql` | **Student "cancel my report" (u8) — a real bug the suite found** |
+| 1 | `supabase/migrations/20261005150000_fix_policy_self_read.sql` | **Student "cancel my report" (u8) — real bug, fix now verified by reasoning but NOT yet run** |
 | 2 | `supabase/migrations/20261005120000_seed_staff_demo_accounts.sql` | All staff login + all four panel demos |
 | 3 | `20261005123000_ai1_duplicate_detection.sql` | Duplicate flagging (`duplicate_of`) |
 | 4 | `20261005130000_fix_evidence_path_prefix.sql` | Evidence upload — see below, **found 2026-10-05** |
@@ -24,7 +24,12 @@ run them in any order.
 | 6 | Re-run `supabase/tests/rls_policy_tests.sql` | Confirms the u8 fix: expect **92/92, 0 failed** |
 
 Items 2–4 are written and syntax-checked but never executed. Item 5 is a read-only
-query. Item 6 is the RLS suite, which **has now been executed once** — see §7c.
+query. Item 6 is the RLS suite, which **has now been executed twice** — see §7c.
+
+> **`20261005140000` was already applied to the live database and did NOT fix u8.**
+> Do not re-run it and do not expect it to help. It was superseded by
+> `20261005150000`; see §7c for why the first attempt was wrong and what the
+> actual root cause turned out to be.
 
 **The evidence blocker is now two independent bugs, not one.** Reading
 `reports_repository.dart` against `storage_evidence_report_id` turned up a
@@ -40,11 +45,13 @@ Student login works. Submitting a report works **if you attach nothing**.
 AI is AI-0 (ADR written) + AI-1 (duplicate detection, not applied);
 classification and priority prediction are still unbuilt proposals.
 
-**The 32 RLS policies now have an executable test suite** (§7c) — the first thing
+**The RLS policies now have an executable test suite** (§7c) — the first thing
 in this project that can actually *prove* a security claim rather than assert it in
-prose. **Run once on 2026-10-05: 91 assertions, 89 passed, 2 failed, 0 fixture
-problems — and it caught a real bug**, a student being unable to soft-delete their own
-report (`u8`). See §7c for the full account and the fix.
+prose. **Run twice on 2026-10-05: first 91 assertions / 89 passed / 2 failed, now
+92 / 91 / 1 — and it caught a real bug**, a student being unable to soft-delete their own
+report (`u8`). Diagnosing it took three attempts and the first fix was wrong; §7c has the
+full account, because the wrong fix is the useful part. **One assertion is outstanding
+and the fix for it has not been run.**
 
 Nothing is uncommitted.
 
@@ -59,7 +66,7 @@ Nothing is uncommitted.
 | Student report create (no evidence) | ✅ Working |
 | Student report create (with evidence) | ❌ **Broken** — open blocker §3 |
 | Staff panels (4 roles) | ✅ Built, untested this session |
-| **RLS policy correctness** | 🟡 **Executable suite written, never run** — §7c. 32 policies previously rested on prose alone |
+| **RLS policy correctness** | 🟡 **Executable suite, run twice — 92 assertions, 91 passing** — §7c. `u8` fix written, **not yet run** |
 | Notifications / analytics | ✅ Built (phases 2.8, 2.9) |
 | Attendance + OCR import | ✅ Built (ML Kit, separate from reports) |
 | AI / ML | 🟡 AI-0 + AI-1 written, **not applied** — duplicate detection only (§6) |
@@ -359,6 +366,10 @@ Also still open: the `0.85` threshold is a **guess, not measured** (ADR-003
 
 ## 7. Parked / not started
 
+- **Run `20261005150000_fix_policy_self_read.sql`, then re-run the RLS suite** — the
+  top outstanding item. Students currently cannot soft-delete their own report (`u8`,
+  `42501`). Fix written, reasoned through, **not yet executed**; see §7c. Expect 92/92.
+  `20261005140000` is already applied and does **not** fix it.
 - **Run `20261005120000_seed_staff_demo_accounts.sql`** — written + syntax
   checked, never executed. Blocks all staff login and all four panel demos.
 - **Run `20261005123000_ai1_duplicate_detection.sql`** — written, never executed.
@@ -453,22 +464,129 @@ built correctly, so both failures were real rather than harness noise.
 | `u1` carol sees 1 report in her community | **Test bug, not a policy bug.** Community B deliberately holds two reports (`...27` carol's and `...24` alice's historical one). Isolation is per-*community*, so 2 was correct. Expectation corrected to 2 and split into a second assertion that carol sees nothing from community A. |
 | `u8` alice may soft-delete her own pending report | **Real production bug.** `pgerror: new row violates row-level security policy for table "reports"`. |
 
-**The u8 defect.** `can_update_report()` opened with a blanket
-`if not public.report_visible_to_caller(p_report_id) then return false; end if;`.
-For a student that predicate demands `reports.deleted_at is null` — but soft-deleting
-*is* setting `deleted_at`, and RLS evaluates WITH CHECK against the post-update row. The
-guard was therefore unsatisfiable and **every student soft-delete failed**. In the app a
-student tapping "cancel my report" would get `42501` and the report would stay open.
+Correcting `u1` added an assertion, so the suite is now **92**.
 
-Only students were affected, and that asymmetry is what identified it: the staff branch
-of the same function gates on `report_visible_to_staff()`, which does *not* filter
-`deleted_at`, so admin moderation soft-delete (also u8) and the admin restore (F1) both
-passed. Fixed in `20261005140000_fix_student_soft_delete_rls.sql` by authorising the
-student branch on **ownership + the specific transition** instead of post-update
-visibility. This is not a loosening — the USING clause still decides which rows a
-student may touch, and the WITH CHECK re-asserts ownership, `old deleted_at IS NULL`,
-`new deleted_at IS NOT NULL`, and status unchanged and `pending`. The staff branch is
-unchanged byte-for-byte.
+### The u8 bug — three attempts, and the first fix was wrong
+
+This is the most valuable thing in this file, so it is written up in full. **If you
+only read one part of §7c, read this.**
+
+**Attempt 1 — a plausible reading that was wrong.** `can_update_report()` opened with
+
+```sql
+if not public.report_visible_to_caller(p_report_id) then return false; end if;
+```
+
+For a student that predicate demands `deleted_at is null` — but soft-deleting *is*
+setting `deleted_at`, and RLS evaluates `WITH CHECK` against the post-update row. The
+guard looked unsatisfiable, so `20261005140000` replaced post-update visibility with
+ownership + the specific transition, on the reasoning that this was the whole defect.
+
+**It was applied to the live database and u8 still failed, byte-identical error.**
+
+**Attempt 2 — instrument instead of guessing.** Nine informational rows were added
+(`u8-diag`) printing each term of the gate as alice, plus the suite's summary
+aggregation was fixed (the failure count used a query-level `WHERE` instead of an
+aggregate `FILTER`, so diag rows were being counted as failures). Live policies were
+also dumped and compared against the repo.
+
+The result ruled out most theories and left one very strange fact:
+
+- the function called **directly** as alice returned `true`
+- every individual term was correct — `my_role()` = `student`, `auth.uid()` set,
+  alice owns `...20`, `...20` visible to alice, old state `pending / null`
+- the policy text in the database **matched the repo exactly** — no drift, no
+  restrictive policy, one UPDATE policy
+- **admin soft-delete, same statement shape, succeeded**
+
+So the function was right, the wiring was right, and the wiring demonstrably used
+the right function. Correct function + correct wiring + still failing is
+contradictory, which meant an assumption nobody had checked had to be wrong.
+
+**Attempt 3 — read the function again instead of theorising.** The student branch
+contained a clause that had been invisible in every previous reading:
+
+```sql
+and exists (
+  select 1 from public.reports r
+  where r.id = p_report_id and r.reporter_id = auth.uid()
+)
+```
+
+**That is the bug.** It is a `SELECT` against `public.reports`, so `reports`' own
+SELECT policy applies to it — and for a student that policy is
+
+```sql
+when 'student' then r.reporter_id = auth.uid() and p_deleted_at is null
+```
+
+It tests **the very column the UPDATE is setting**. Called standalone the row still
+has `deleted_at = null`, so the read passes and the gate returns true — exactly what
+the diagnostics recorded. Invoked as `WITH CHECK`, evaluated once the new tuple
+exists, `deleted_at` is now non-null, the row is no longer visible to alice, `exists`
+returns false, and the UPDATE is refused with `42501`.
+
+**This finally explains the one asymmetry that survived every other theory.** Student
+is the *only* role whose `SELECT` visibility depends on the column being changed, and
+the only role whose branch contained a self-read. `report_visible_to_caller_row`
+answers `when 'admin' then true` unconditionally, and the hod / technician /
+operations branches delegate to `report_visible_to_staff()`, which never considers
+`deleted_at`. So every staff path is immune and only alice breaks.
+
+Same class of bug as `20260815103000`, where `report_visible_to_caller(id)` made
+`INSERT ... RETURNING` fail for every student with the same `42501`. The precedent
+there was explicit: take the row's own columns as arguments, do not re-read the table.
+
+**The fix — `20261005150000_fix_policy_self_read.sql`.** Ownership and prior state move
+into `USING`, which is evaluated against the pre-update row before any new tuple
+exists, so nothing can be filtered:
+
+```sql
+using      (public.can_update_report_row(id, status, deleted_at, reporter_id))
+with check (public.can_update_report(id, status, deleted_at))
+```
+
+The student branch of `can_update_report()` then validates only the incoming values
+and performs **no table read at all**.
+
+**Verified equivalent, not merely similar.** Each condition was mapped back to the
+original — nothing loosened, nothing narrowed:
+
+| Original condition | Now enforced by |
+|---|---|
+| `v_old_deleted_at is null` | `USING p_deleted_at is null` |
+| `v_old_status = 'pending'` | `USING p_status = 'pending'` |
+| `reporter_id = auth.uid()` | `USING p_reporter_id = auth.uid()` |
+| `p_new_deleted_at is not null` | `WITH CHECK` |
+| `p_new_status = 'pending'` | `WITH CHECK` |
+
+Worth recording: **students were soft-delete-only by design all along** — the original
+branch already required `p_new_deleted_at is not null`, so no legitimate student edit
+is lost. A student still cannot double-delete (USING requires prior `deleted_at IS
+NULL`), touch a non-pending report, touch anyone else's report, or smuggle a status
+change out inside the same UPDATE (`'resolved'` fails `new_status = 'pending'`).
+**F5** holds — `USING` is only evaluated for rows the UPDATE actually matched, so a
+nonexistent report still cannot reach `WITH CHECK`. The staff branch is unchanged
+byte-for-byte.
+
+> **State: reasoned through and statically checked, NOT executed.** The migration and
+> the suite edit are committed; the live database still has `20261005140000` applied
+> and **not** `20261005150000`. Apply it, then re-run the suite. Expect 92/92. **If u8
+> still fails, the remaining suspect is `my_role()` returning NULL inside the policy
+> context** — the `u8-diag` rows now isolate it, and that would be a much narrower bug.
+
+**Lesson worth not repeating.** Twice here the fix was written from a plausible
+mechanism and the suite said no. What actually worked was stopping and reading the
+function again with the specific question *"which subquery touches the column being
+updated?"* A green suite does not prove the reasoning was right, but a red one
+definitively disproves it — and the fix that landed came from re-reading, not from
+another theory.
+
+Two diagnostic helpers are committed alongside it and are safe to re-run:
+`supabase/tests/probe_rls_flags.sql` (RLS flags, ownership, `BYPASSRLS`,
+`SECURITY DEFINER`) and `supabase/tests/probe_live_policies.sql` (live policy dump vs
+repo). The first was written to chase a `FORCE RLS` theory that turned out not to be
+the cause; it is kept because it is the right tool if `u8` somehow survives.
 
 **This is precisely the class of defect 258 mocked Flutter tests cannot reach**, and it
 is the justification for having written the suite at all.
@@ -494,12 +612,12 @@ is the justification for having written the suite at all.
    are resolved by key and reused. Everything the suite owns carries the `f1ce0000`
    prefix and every count filters on it.
 
-**Status: EXECUTED once on 2026-10-05 — 89/91 passing, and it found a real bug.** There
-is no Supabase CLI, `psql` or Docker in this environment, so it is run by pasting it into
-the SQL Editor. First run: **2 failures, 0 fixture problems.** One (`u1` carol) was a
-wrong test expectation and is fixed; the other (`u8`) was a genuine policy defect —
-students could not soft-delete their own report — now fixed by
-`20261005140000_fix_student_soft_delete_rls.sql`. **Re-run it to confirm 92/92.**
+**Status: EXECUTED twice on 2026-10-05 — second run 92 assertions, 91 passing, 0 fixture
+problems.** There is no Supabase CLI, `psql` or Docker in this environment, so it is run by
+pasting it into the SQL Editor. First run: 2 failures — one (`u1` carol) a wrong test
+expectation, since fixed; one (`u8`) a genuine policy defect. Second run: 1 failure, still
+`u8`, because the first fix was wrong. **`20261005150000` is the third attempt and has not
+been run — apply it and re-run to confirm 92/92.**
 
 Three Supabase SQL Editor quirks, all hit and worked around:
 

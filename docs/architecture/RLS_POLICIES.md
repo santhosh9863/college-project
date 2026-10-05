@@ -239,14 +239,16 @@ Legend: **S**=student, **H**=hod, **T**=technician, **O**=operations, **A**=admi
 ## 6. Implementation Order (pending explicit authorization)
 
 1. ~~Generate the RLS migration~~ — **done**, `20260811103300_rls_security.sql`.
-2. ~~Apply via the established preflight flow~~ — **partly done**: 33 of 36 migrations
+2. ~~Apply via the established preflight flow~~ — **partly done**: 34 of 37 migrations
    were applied by hand through the SQL Editor (no Supabase CLI in this environment),
    so the `migration list --linked` / `db push` flow in this section was never used.
-   `20261005120000` (staff seed), `20261005123000` (AI-1) and `20261005130000`
-   (evidence path prefix fix) remain unapplied.
+   `20261005130000` (evidence path prefix fix), `20261005120000` (staff seed) and
+   `20261005123000` (AI-1) remain unapplied. `20261005140000` was applied but is
+   **superseded and ineffective** — see §7; `20261005150000` is the real fix and is
+   also unapplied.
 3. ~~Prove the policies~~ — **done**: `supabase/tests/rls_policy_tests.sql` asserts
    u1–u23 and the lifecycle invariants it can currently reach against a live database
-(D1, D3, D5, D6, D8, D10) against a live database. See §7.
+   (D1, D3, D5, D6, D8, D10) against a live database. See §7.
 
 *This document is the design record. The applied SQL is the source of truth — see
 `docs/decisions/ADR-002-Database.md` §1.1 for the full list of divergences.*
@@ -276,3 +278,49 @@ How it works, and why it is safe to point at a live database:
 A failing assertion means the database disagrees with this document. That is the
 point: it is either a real security bug or a documentation error, and both are
 worth finding before a demo rather than after.
+
+### 7.1 Verification status — read this before trusting §1
+
+The suite has been **run twice against the live database (2026-10-05)**. It is not a
+paper claim.
+
+| Run | Result |
+|---|---|
+| 1st | 91 assertions — **89 passed, 2 failed**, 0 fixture problems |
+| 2nd | 92 assertions — **91 passed, 1 failed**, 0 fixture problems |
+
+Zero fixture problems on both runs is the load-bearing part: the 8 users, 2 communities
+and 8 reports all built correctly, so every failure was a real disagreement rather
+than harness noise.
+
+**u1** was a wrong *test* expectation, now corrected — community B deliberately holds
+two reports, and isolation is per-*community*.
+
+**u8 is a genuine bug in this document's subject matter and is still open.** A student
+cannot soft-delete their own pending report:
+
+```
+new row violates row-level security policy for table "reports"   (42501)
+```
+
+Root cause: the student branch of `can_update_report()` re-read the row via
+`exists (select 1 from public.reports … where r.reporter_id = auth.uid())`. That is a
+`SELECT` on `reports`, so **§1's own SELECT policy applies to it** — and for a student
+that policy requires `deleted_at is null`, the exact column the UPDATE is setting.
+Standalone the read passes; as `WITH CHECK` it is evaluated after the new tuple exists,
+the row is no longer visible to the caller, and the gate returns false.
+
+Only students are affected, and the reason is structural rather than accidental:
+**a policy helper that re-reads its own row is safe only while the SELECT policy ignores
+the columns being updated.** §1's `when 'admin' then true` is unconditional and the
+staff branches delegate to `report_visible_to_staff()`, which ignores `deleted_at`, so
+every staff path is immune. Student is the only role whose visibility depends on the
+changing column, and the only role whose branch self-read. This is the same defect class
+as the `INSERT … RETURNING` failure already fixed in `20260815103000`.
+
+`20261005140000` was an attempt at this and **did not work** — it is applied to the live
+database and must not be relied on. `20261005150000_fix_policy_self_read.sql` is the
+real fix: it moves ownership and prior state into `USING`, which sees the pre-update
+row, so no self-read remains. It is **not yet applied**. Full account, including why the
+first attempt failed and what was ruled out, is in
+`docs/development/CURRENT_STATE.md` §7c.

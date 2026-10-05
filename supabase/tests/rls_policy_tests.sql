@@ -785,13 +785,19 @@ insert into public.rls_test_results (requirement, expectation, expected, actual)
 select 'u8-diag', 'auth.uid() is set', 'informational',
        coalesce(auth.uid()::text, '(null)');
 
--- The USING gate, called directly. Coalesced because the underlying expression is
--- `my_role() = 'student' and exists (...)`, which yields NULL rather than false if
--- my_role() is NULL, and `actual` is NOT NULL.
+-- The USING gate, called directly with exactly the arguments the policy supplies.
+-- Since 20261005150000 the gate is row-aware: it takes prior status, prior
+-- deleted_at and reporter_id from the tuple rather than re-reading the row, so
+-- this mirrors the policy expression exactly. Coalesced because the subselect
+-- yields no row if ...20 is not visible to alice, and `actual` is NOT NULL.
 insert into public.rls_test_results (requirement, expectation, expected, actual)
-select 'u8-diag', 'USING gate can_update_report_row(...20)', 'informational',
-       coalesce(public.can_update_report_row(
-                  'f1ce0000-0000-4000-8000-000000000020')::text, '(null)');
+select 'u8-diag', 'USING gate can_update_report_row(...20, old cols)', 'informational',
+       coalesce((
+         select public.can_update_report_row(
+                  r.id, r.status, r.deleted_at, r.reporter_id)::text
+           from public.reports r
+          where r.id = 'f1ce0000-0000-4000-8000-000000000020'),
+         '(row not visible to alice)');
 
 -- The WITH CHECK gate, called directly with the same arguments the policy
 -- supplies. If this is 'true' the function is fine and the policy is the problem.
