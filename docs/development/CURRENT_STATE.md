@@ -40,7 +40,7 @@ Nothing is uncommitted.
 | Staff panels (4 roles) | ✅ Built, untested this session |
 | Notifications / analytics | ✅ Built (phases 2.8, 2.9) |
 | Attendance + OCR import | ✅ Built (ML Kit, separate from reports) |
-| AI / ML classification | ⬜ Specified only — **zero code** |
+| AI / ML | 🟡 AI-0 + AI-1 written, **not applied** — duplicate detection only (§6) |
 | Storage / evidence | ❌ Broken |
 | `flutter analyze` | ✅ Clean (re-run 2026-10-05) |
 | `flutter test` | ✅ 241/241 pass (re-run 2026-10-05) |
@@ -228,27 +228,46 @@ reference doc only. (A draft AI plan repeatedly called it "Campus Pulse".)
 
 ---
 
-## 6. AI/ML — specified, not started
+## 6. AI/ML — AI-0 and AI-1 written, neither applied
 
-`docs/architecture/AI_ARCHITECTURE.md` is now a full spec. Two things to know:
+**Do not describe the AI approach as pre-decided.** `ADR-003-AI.md` and
+`AI_ARCHITECTURE.md` were empty skeletons; a draft plan claimed TF-IDF / cosine
+similarity / logistic regression were "explicitly proposed by the project
+documentation". **They were not** — those terms appear nowhere in `docs/`.
+They are marked **[N]** (new proposal) vs **[D]** (existing decision)
+throughout, and §1.1 of the ADR records the misattribution deliberately.
 
-1. **It and `docs/decisions/ADR-003-AI.md` were empty skeletons** — title + TOC,
-   no prose. An earlier draft plan claimed TF-IDF / cosine similarity / logistic
-   regression were "explicitly proposed by the project documentation". They were
-   **not** — those terms appear nowhere in `docs/`. They are now marked **[N]**
-   (new proposal) vs **[D]** (existing decision) throughout. Don't cite them as
-   prior decisions.
-2. **Zero AI code exists.** No AI Edge Function (`supabase/functions/` has only
-   `linways-login`), no `ai/` directory, no dataset, no training code.
+Now written:
 
-Already built and enforced (no work needed): `reports.ai_confidence`,
-`reports.duplicate_of`, the `ai_classification_log` table, admin-only append-only
-reads, service-role-only writes, and `can_create_report()` requiring
-`ai_confidence IS NULL` — which **deliberately forbids** classifying before
-insert. AI must run *after* report creation.
+| Phase | Artifact | State |
+|---|---|---|
+| AI-0 | `docs/decisions/ADR-003-AI.md` — **filled** (was 0 lines of prose) | Done |
+| AI-1 | `20261005123000_ai1_duplicate_detection.sql` — `pg_trgm` duplicate detection | Written, **never applied** |
+| AI-2+ | Edge Function, dataset, TF-IDF, priority | ⬜ Not started |
 
-**Recommended first slice: duplicate detection via Postgres `pg_trgm`, not ML.**
-No model, no dataset, no Edge Function. See AI_ARCHITECTURE §5 and §9.
+**AI-1 is the whole first slice: `pg_trgm` similarity in an `AFTER INSERT`
+trigger.** No model, no dataset, no Edge Function, no Python. It exercises the
+entire DB contract that already existed (`duplicate_of`, `ai_confidence`,
+`ai_classification_log`) — that scaffolding was built in phase 1 and nothing
+consumed it until now.
+
+Two things to know before changing it:
+
+- **The `AFTER INSERT` timing is forced, not stylistic.**
+  `can_create_report()` (`rls_security.sql:101-127`) requires `ai_confidence IS
+  NULL` **and** `duplicate_of IS NULL` for students, so classifying or linking
+  *before* insert is rejected by the database. That is a deliberate invariant.
+- **It cannot fail a submission.** The trigger body catches all exceptions and
+  returns `NEW`, so a bug leaves `duplicate_of IS NULL` — exactly the state
+  `can_create_report()` expects. Detection only flags; no report is ever
+  rejected, merged, hidden, or closed (§8 invariant).
+
+**Biggest gap:** `duplicate_of` is written but **displayed nowhere**. Staff have
+no "similar to report X" hint yet, so AI-1's value is currently invisible to the
+people it helps. That's ADR-003 §5.1 and the natural next task.
+
+Also still open: the `0.85` threshold is a **guess, not measured** (ADR-003
+§5.2), and pre-existing reports are **not backfilled** (§5.3).
 
 ---
 
@@ -256,9 +275,11 @@ No model, no dataset, no Edge Function. See AI_ARCHITECTURE §5 and §9.
 
 - **Run `20261005120000_seed_staff_demo_accounts.sql`** — written + syntax
   checked, never executed. Blocks all staff login and all four panel demos.
+- **Run `20261005123000_ai1_duplicate_detection.sql`** — written, never executed.
 - Run the §3.1 type query — blocks the evidence upload fix
-- AI implementation (waiting on user)
-- `docs/decisions/ADR-003-AI.md` still an empty skeleton — fill when AI-0 happens
+- Staff-facing duplicate hint — `duplicate_of` is written but shown nowhere
+- AI-2+ (Edge Function, dataset, classification, priority)
+- Install the Supabase CLI — every migration is currently hand-applied
 - Real checkpoint doc for this phase (this file serves as it for now)
 
 ---
